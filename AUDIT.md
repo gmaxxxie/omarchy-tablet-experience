@@ -1,0 +1,163 @@
+# Omarchy Tablet Experience — PHASE 0 Audit Report
+
+Date: 2026-08-28 · Device: Lenovo ThinkPad X12 Detachable Gen 1 · Session: Wayland (uwsm) via SDDM
+**Nothing was modified during this phase.**
+
+## 1. Versions
+
+| Component | Version | Notes |
+|---|---|---|
+| Omarchy | 4.0.1-1 | Quattro package layout (`/usr/share/omarchy`, `$OMARCHY_PATH` set) |
+| Hyprland | 0.56.2 | v0.56.2, no plugins loaded; **hyprlang deprecated since 0.55 → Lua config API** |
+| Quickshell | 0.3.1-1 | Hosts `omarchy-shell` (single long-running process) |
+| OS | Arch Linux | SDDM + uwsm session, Wayland `wayland-1` |
+
+Omarchy config layout confirmed: Lua Hyprland config (`~/.config/hypr/*.lua`), shell config `~/.config/omarchy/shell.json`, plugins `~/.config/omarchy/plugins/<id>/`.
+
+## 2. Hardware inventory (as seen by Hyprland)
+
+- **Monitor:** `eDP-1`, 1920x1280@60Hz at 0x0, scale 1.6, **transform 0**, Chimei Innolux 0x1249
+- **Touchscreen:** `wacom-hid-525d-finger` (Touch) — already recognized, `hl.virtual keyboard` absent
+- **Pen:** `wacom-hid-525d-pen` (Tablet, 259.2x172.8mm)
+- **Keyboard:** `Darfon Thinkpad X12 Detachable Gen 1 Folio case` (multiple input nodes event4–9) — **USB device `17ef:60fe`** ⇒ attach/detach = USB plug/unplug (reliable udev signal)
+- **Switches:** `Lid Switch`, `ThinkPad Extra Buttons` (Libinput switches)
+- **IIO sensors (raw, /dev/iio:device*):**
+  - `iio:device0` = `accel_3d` — live (values change on read), scale 9.806e-3 m/s²/LSB ⇒ ~1g total, sane
+  - `iio:device1` = `gyro_3d`
+  - `iio:device2` = `hinge` — exposes `in_angl0:hinge`, `in_angl1:screen`, `in_angl2:keyboard` (10 Hz sampling) — **raw = 0, needs buffer/poll verification; iio-sensor-proxy does NOT expose hinge angle by standard**
+
+## 3. Sensors / orientation stack
+
+| Item | Status |
+|---|---|
+| iio-sensor-proxy | **NOT installed** (available in official `extra`, 3.9-1) |
+| monitor-sensor | not available (comes with iio-sensor-proxy) |
+| Accelerometer | works, exposed via IIO; iio-sensor-proxy will pick it up |
+
+## 4. Input method status (IMPORTANT — differs from assumption)
+
+- **IBus: NOT installed.**
+- **Fcitx5 5.1.21 IS installed and running** — managed by Omarchy itself (`omarchy-fcitx5.service`, "XCompose sequences", `Restart=always`).
+  - `INPUT_METHOD=fcitx`, `XMODIFIERS=@im=fcitx`, `SDL_IM_MODULE=fcitx`, `QT_IM_MODULE=fcitx`; `GTK_IM_MODULE` unset (GTK Wayland text-input path)
+  - `fcitx5-gtk`, `fcitx5-qt` installed; `waylandim` addon present ⇒ text-input-v3 works for Wayland GTK/Qt apps
+- **Risk:** migrating to IBus means replacing Omarchy's own managed IM. Decision point for the user (see §9).
+
+## 5. Virtual keyboard status
+
+- **No VK installed** (no maliit / squeekboard / wvkbd).
+- Candidates:
+  - **Fcitx5 built-in DBus VK addon** — `virtualkeyboard.conf` present (Category UI, UIType=OnScreenKeyboard, OnDemand) — zero new packages
+  - **Hyprland built-in virtual keyboard** — Hyprland exposes device `hl-virtual-keyboard-fcitx5` (`main: yes`); Hyprland has native virtual-keyboard integration
+  - **Squeekboard** — official `extra`, 1.43.1-5
+  - **Maliit** — AUR only (`maliit-keyboard` 2.3.1-3); user preference weighted, but AUR dependency
+
+## 6. Keyboard attach/detach mechanism (X12)
+
+1. **Primary (recommended):** USB presence of `17ef:60fe` (`Lenovo Thinkpad X12 Detachable Gen 1 Folio case`) → udev add/remove events + sysfs check. Deterministic and simple.
+2. **Secondary:** IIO `hinge` sensor angles (`keyboard` axis) — needs live verification (values currently 0).
+3. **Secondary:** `Lid Switch` libinput device exists.
+Omarchy's `omarchy hw clamshell` = lid-closed AND external-monitors — NOT the keyboard-detach signal.
+
+## 7. Hyprland native capabilities (this exact version)
+
+- **Touchscreen workspace swipe: AVAILABLE natively.**
+  - `gestures:workspace_swipe_touch` = false (exists), `gestures:workspace_swipe_touch_invert` = false, `gestures:workspace_swipe_distance` = 300, `gestures:workspace_swipe_cancel_ratio` = 0.5
+  - **`gestures:workspace_swipe_touch_edge` does NOT exist** in 0.56.2 (old tutorial syntax obsolete)
+- **Trackpad 1:1 gestures:** new system via `hl.gesture({fingers, direction, action, mods, scale})` (Lua)
+- **Runtime mutation mechanism (confirmed):** `hyprctl eval "<lua>"` — Omarchy's own `omarchy toggle touchscreen` uses `hyprctl eval "hl.device({name=..., enabled=...})"`. The plugin will use the same mechanism for transforms/touch mapping at runtime.
+- **Rotation:** `hl.monitor({output="eDP-1", transform=N})` in Lua + reload; touch mapping via `input:touchdevice:transform` / `input:touchdevice:output=[[Auto]]` (both options exist). Phase 5 must verify touch sync per orientation.
+- **Touch options:** `input:touchdevice:enabled` = true (exists).
+
+## 8. Omarchy plugin API (Quattro, schemaVersion 1) — CONFIRMED against local install
+
+- Location: `~/.config/omarchy/plugins/<plugin-id>/`
+- Kinds ↔ files: `bar-widget`→BarWidget.qml · `panel`→Panel.qml · `overlay`→Overlay.qml · `menu`→Menu.qml · `service`→Service.qml · `bar`→Bar.qml
+- Manifest fields: `schemaVersion`, `id`, `name`, `version`, `author`, `license`, `description`, `kinds[]`, `entryPoints{}`, kind config (e.g. `barWidget`: `displayName/category/allowMultiple/defaultSection`; `panel` may set `keepLoaded: true` — see `omarchy.osd`)
+- Commands: `omarchy plugin clone|add|enable|disable|remove|list --json|validate <dir>`; runtime IPC `omarchy-shell shell summon <id> '{}'` / `hide` / `rescanPlugins`
+- Persistence primitive: **`PersistentProperties { reloadableId: "..." }`** (used by omarchy.battery) — survive shell reloads; the Omarchy-native state mechanism to use
+- Service pattern: `Service.qml` = headless `Item` + Timer + `Process` + `Connections` (see `omarchy.battery`)
+- Bar-widget pattern: `BarWidget.qml` + nested `Panel.qml` via `Loader`, `WidgetButton`, `KeyboardPanel`, `PanelKeyCatcher`; same `moduleName` in all files (see `omarchy.clock` clone tutorial)
+- **Quickshell native Hyprland module available:** `Quickshell.Hyprland` (Ipc: `monitors`/`workspaces`/`toplevels` models, `dispatch()`, `rawEvent`, `parse`) — no need to shell out for IPC, though `Process`+`hyprctl` also works
+- Menu: extend `~/.config/omarchy/extensions/omarchy-menu.jsonc` (dotted ids, `icon/label/action/checked`, hot-reload)
+- Bar placement: `omarchy bar move <id> --section <s>` or edit `shell.json` `bar.layout`
+
+## 9. Deviations / decisions required
+
+1. **IME:** Task assumed IBus; system runs Omarchy-managed Fcitx5, no IBus. Recommendation: **keep Fcitx5** (already the Omarchy default, zero migration risk); verify Chinese input in GTK/Qt/Chromium/terminal in Phase 3, and let the VK interoperate with it. Migrating to IBus = replacing Omarchy's own service, contradicts "do not modify Omarchy core / do not replace IME" — leaving the decision to the user.
+2. **Virtual keyboard:** zero-new-package path = fcitx5 DBus VK addon + Hyprland built-in VK. Squeekboard (extra) = external alternative. Maliit = AUR only.
+3. **Auto-switch signal:** use USB `17ef:60fe` presence (udev), not the hinge IIO sensor (unverified).
+
+## 10. Recommended implementation path (matches task order)
+
+1. Phase 1: native touchscreen config (already recognized; enable `omarchy toggle touchscreen`; test tap/scroll/drag/select; window rules for float-on-touch where sensible)
+2. Phase 2: `gestures:workspace_swipe_touch = true` via generated Lua + reload (or `hyprctl eval`)
+3. Phase 3: verify Fcitx5 Chinese input (GTK/Qt/Chromium/terminal) — no changes expected
+4. Phase 4: evaluate fcitx5 VK + Hyprland built-in VK first; Squeekboard as alternative
+5. Phase 5: manual rotation via `hyprctl eval`/Lua reload; verify 0/90/180/270 + touch mapping each time
+6. Phase 6: `iio-sensor-proxy` (extra pkg) + orientation → Tablet mode only
+7. Phase 7: manual Laptop/Tablet mode (state via `PersistentProperties`, idempotent apply)
+8. Phase 8: plugin `maxt.tablet-experience` — kinds `service` + `bar-widget` (+nested `Panel.qml`); menu via `omarchy-menu.jsonc`
+9. Phase 9: udev/USB-keyboard attach/detach watcher (small helper + D-Bus or file watch into Service)
+10. Phase 10: auto-switch (opt-in)
+11. Phase 11: optional multi-touch gestures — hyprpm checks against 0.56.2 only (no plugins loaded today; no third-party daemon as MVP dependency)
+
+## 11. Guardrails (unchanged from task)
+
+- Only touch `~/.config/omarchy/plugins/<id>/`, `~/.config/hypr/` user files (with backups), `extensions/omarchy-menu.jsonc`, and an isolated state dir. Never `/usr/share/omarchy/`.
+- New packages only when justified: iio-sensor-proxy (extra) at Phase 6 minimum.
+- No destructive changes, no duplicate VKs, no obsolete gesture frameworks.
+
+## 12. Progress log
+
+### 2026-08-28 — Phase 1, Phase 2, IM & fonts
+
+**Phase 1 — Touchscreen (DONE):** `wacom-hid-525d-finger` recognized, `input:touchdevice:enabled=true`, transform 0, output Auto. No drivers installed — native support only.
+
+**Phase 2 — Workspace swipe (DONE):** created plugin-owned `~/.config/hypr/tablet-experience.lua` (required from `hyprland.lua`, backup at `hyprland.lua.bak.1787928342`). Enabled `gestures:workspace_swipe_touch=true` (+ `workspace_swipe_touch_invert=false`). Confirmed via `hyprctl getoption` and zero `configerrors`.
+
+**IM — Fcitx5 + Rime + Wanxiang (DONE):**
+- Installed (official extra): `fcitx5-rime 5.1.14-1`, `librime 1.17.0-5` (+ rime data pkgs), fonts `noto-fonts-cjk 20240730-1`, `wqy-microhei 0.2.0_beta-12`.
+- Wanxiang v17.7.1 base extracted to `~/.local/share/fcitx5/rime/` (user rime dir for fcitx5-rime); schema `wanxiang` (万象拼音 LTS).
+- Deployed cleanly: `build/wanxiang.{table,prism,reverse}.bin` present, `build/default.yaml` schema_list → `wanxiang`.
+- fcitx5 profile: added `rime` as second IM (Default stays `keyboard-us`); fcitx5 restarted, log confirms `Loaded addon rime`; Wayland native IM protocol: 1.
+- Fcitx5 profile backup: `~/.config/fcitx5/profile.bak.*`
+
+**Pending user verification (GUI):** touchscreen tap/scroll/drag/select; edge-swipe workspace switch; switch to Rime (Ctrl+Space) and type Chinese in GTK/Qt/Chromium/terminal; CJK font rendering.
+
+### 2026-08-29 — Phase 2 resumed, Phase 4 (VK) core path
+
+**Top-bar touch: RESOLVED via reboot** — clean re-login restored bar touch
+with zero config changes (runtime-state wedge). Details in
+`DEBUG-TOUCH-BAR.md`. Swipe re-enabled after the fix:
+`gestures:workspace_swipe_touch=true`, user-verified edge-swipe workspace
+switching + bar taps both fine.
+
+**Phase 4 — Virtual keyboard (decision + working core):**
+- fcitx5 `virtualkeyboard` addon is a **DBus bridge only** (`libvirtualkeyboard.so`
+  has no Qt deps; addon desc: "A virtual keyboard backend based on DBus").
+  `org.fcitx.Fcitx.VirtualKeyboard1` on `/virtualkeyboard` forwards show/hide
+  to an external renderer — useless without one.
+- wvkbd = AUR only (excluded). **squeekboard 1.43.1-5 (official extra) chosen.**
+- squeekboard IPC: `sm.puri.OSK0` on `/sm/puri/OSK0` — method `SetVisible(b)`,
+  readable property `.Visible` (read-then-invert for reliable toggle).
+  Renders as layer surface namespace `osk` (0 587 1200 213).
+- Gesture daemon `~/.local/bin/omarchy-vk` (python-evdev): passive listen on
+  `/dev/input/event15` (no grab), bottom-12% up-swipe → show; while visible,
+  downward drag starting ≥68% → dismiss. Tuning constants at file top
+  (BOTTOM_RATIO/MOVE_THRESHOLD/DOWN_ZONE_RATIO/DOWN_THRESHOLD).
+  **User-verified: bottom up-swipe pops the keyboard.**
+- Wacom quirk discovered via event trace: reports ABS_MT_TRACKING_ID **without**
+  ABS_MT_SLOT → daemon tracks by touch-id (not slot).
+- Bind added to `tablet-experience.lua`: `SUPER+U` → `omarchy-vk toggle`.
+- Package additions (extra, removable): squeekboard, python-evdev.
+
+**Pending:** autostart for daemon (`autostart.lua`), touch-key input
+verification, Chinese (Rime) input through VK.
+
+Symptom: tapping the Omarchy top bar passes through to the desktop (double-tap opens wallpaper picker); mouse clicks on the bar work. User reports it worked right after system install.
+
+Cleared by controlled experiments: `gestures:workspace_swipe_touch` (off → no change), fcitx5 (fully stopped → no change), touch device hardware (raw coords verified correct), fonts/Rime.
+
+Evidence: `hyprctl layers` shows only `omarchy-bar 0 0 1200 30` at top, no overlay; no occlusion. Hyprland 0.56.2 source + Quickshell source review says the bar should be hittable (Quickshell never sets empty input regions). Root cause not found yet.
+
+Action: reboot planned; then re-test bar. Full record: `DEBUG-TOUCH-BAR.md` in project dir.
