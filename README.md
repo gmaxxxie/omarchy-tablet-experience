@@ -15,6 +15,7 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 | 3 | Input method (Chinese) | ✅ fcitx5 + Rime + Wanxiang installed & deployed (see below) |
 | 4 | Virtual keyboard | 🟡 squeekboard (extra) core path **working**: D-Bus toggle ✓, bottom-edge up-swipe show ✓ (user-tested), `SUPER+U` bind ✓; pending autostart + touch/Chinese input verification |
 | 5–11 | rotation / state / UI / auto-switch | ⏳ pending |
+| 12 | **Hardware full bring-up (esp. camera)** | 🔍 user-added: camera = Syntek `174f:118f` via Intel IPU6 (`/dev/video0–13` seen, **output unverified**); fingerprint `06cb:00bd` + BT AX201 + audio pending |
 
 ## System facts (captured 2026-08-28)
 
@@ -24,6 +25,8 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 - **Keyboard** = USB `17ef:60fe` "Darfon Folio case" → attach/detach = USB plug/unplug (future auto-mode signal)
 - **Sensors** iio: accel (`accel_3d`) ✓ live · gyro ✓ · hinge (`in_angl0/1/2` = hinge/screen/keyboard, raw=0, unverified)
 - **IME**: Fcitx5 (Omarchy-managed `omarchy-fcitx5.service`, Wayland text-input-v3) + Rime + **Wanxiang v17.7.1** (schema `wanxiang`, in `~/.local/share/fcitx5/rime/`, deployed ✓)
+- **Camera**: Syntek `174f:118f` (USB) on Intel **IPU6** stack (PCI 00:05.0, `/dev/video0–13`) — output NOT yet verified (Phase 12)
+- **Other hw seen**: fingerprint `06cb:00bd` Synaptics Prometheus · BT `8087:0026` AX201 · audio `sof-hda-dsp` — all pending verification
 - **Fonts**: noto-fonts-cjk + wqy-microhei ✓
 
 ## Files changed so far (all reversible, backups in place)
@@ -48,8 +51,9 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 ## Next actions
 
 1. **Persist gesture daemon:** add `o.launch_on_start("omarchy-vk daemon")` to `~/.config/hypr/autostart.lua` (after user confirms gesture feel on next login).
-2. **Verify input through skeekboard:** touch a key in afoot/editor/browser — confirms Wayland key injection; then fcitx5 Rime pinyin via VK (Ctrl+Space, type `nihao` → candidates).
-3. Later phases: 5 rotation, 6 iio-sensor-proxy orientation, 7 Laptop/Tablet state, 8 plugin, 9 udev keyboard watcher, 10 auto-switch, 11 gestures.
+2. **Verify input through skeekboard:** touch a key in a foot/editor/browser — confirms Wayland key injection; then fcitx5 Rime pinyin via VK (Ctrl+Space, type `nihao` → candidates).
+3. **Phase 12 hardware bring-up begins (user priority): camera first** — IPU6 stack output test → fingerprint (fprintd) → BT → audio.
+4. Later phases: 5 rotation, 6 iio-sensor-proxy orientation, 7 Laptop/Tablet state, 8 plugin, 9 udev keyboard watcher, 10 auto-switch, 11 gestures.
 
 ## Repository layout
 

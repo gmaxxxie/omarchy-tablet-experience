@@ -100,6 +100,13 @@ Omarchy's `omarchy hw clamshell` = lid-closed AND external-monitors — NOT the 
 9. Phase 9: udev/USB-keyboard attach/detach watcher (small helper + D-Bus or file watch into Service)
 10. Phase 10: auto-switch (opt-in)
 11. Phase 11: optional multi-touch gestures — hyprpm checks against 0.56.2 only (no plugins loaded today; no third-party daemon as MVP dependency)
+12. **Phase 12 (追加, user): 硬件全启动，尤其摄像头** — inventory all hw not covered by Phase 0; make every device fully usable.
+    - **摄像头 (highest priority):** Syntek `174f:118f` via Intel IPU6 stack (`ipu6` PCI 00:05.0, `/dev/video0–13`). Verify userspace stack (ipu6-camera-hal/ucode, gst/v4l2), get first frames, test in browser/omarchy apps; permissions/ifb handling if needed.
+    - Fingerprint `06cb:00bd` Synaptics Prometheus → fprintd enroll/test.
+    - Bluetooth `8087:0026` AX201 → verify scan/pair.
+    - Audio sof-hda-dsp → capture+playback test (mic/headphone/HDMI).
+    - Any other device reported by `lsusb`/`hyprctl devices` not yet exercised.
+    - Guardrails apply: official packages or justified vendor files, removable, documented.
 
 ## 11. Guardrails (unchanged from task)
 
@@ -153,6 +160,14 @@ switching + bar taps both fine.
 
 **Pending:** autostart for daemon (`autostart.lua`), touch-key input
 verification, Chinese (Rime) input through VK.
+
+**追加需求 (2026-08-29, user): 硬件全启动，尤其摄像头** — 确保全部硬件
+可用，优先级：摄像头。现状探测：摄像头硬件存在（USB `174f:118f` Syntek
+Integrated RGB Camera），由 **Intel IPU6** 栈驱动（PCI `0000:00:05.0`，
+`/dev/video0–13` 已挂载）；**出画（用户空间栈完整性）未验证**。其他已见
+硬件待验证项：指纹 `06cb:00bd` Synaptics Prometheus（fprintd）、蓝牙
+`8087:0026` AX201、音频 sof-hda-dsp（HDMI/耳机/麦克风节点已出现）。
+→ 新增路线图 Phase 12（见 §10）。
 
 Symptom: tapping the Omarchy top bar passes through to the desktop (double-tap opens wallpaper picker); mouse clicks on the bar work. User reports it worked right after system install.
 
