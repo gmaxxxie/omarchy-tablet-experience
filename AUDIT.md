@@ -214,6 +214,34 @@ zero deps; `once`/`--json`/`--watch`) classifies normal/bottom-up/left-up/
 right-up — archived `scripts/omarchy-orient`, live at `~/.local/bin/`. Sensor
 mounting/axis conventions need physical calibration (`--watch`). Wiring into
 auto-rotation = Phase 6/7, pending `sudo pacman -S iio-sensor-proxy`.
+`iio-sensor-proxy` + `libcamera` both installed by user 2026-08-29.
+
+### 2026-08-29 — Phases 7+8: Laptop/Tablet state machine + Omarchy plugin
+
+Built plugin `maxt.tablet-experience` (`~/.config/omarchy/plugins/`,
+archived `plugin-source/`): `service` + `bar-widget` kinds.
+
+- **Service.qml** — `PersistentProperties { reloadableId:
+  "maxt-tablet-experience" }` holding `mode` (laptop|tablet) and
+  `tabletRotation` preset (off|0|2); idempotent applyNext() (OSD via
+  `omarchy-osd`, optional `omarchy-rotate` on enter-tablet); Charm
+  `IpcHandler target "maxt.tablet-experience"` exposing
+  getState/getMode/toggle/setMode/setRotation → reachable as
+  `omarchy-shell maxt.tablet-experience …`.
+- **BarWidget.qml** — `BarWidget` base + `WidgetButton` (bar left-click
+  toggles mode, right-click cycles rotation preset off→180°→0°); nerd glyphs
+  U+F03FF tablet / U+F0322 laptop **verified in JetBrainsMono Nerd Font**
+  (the bar's resolved `monospace`).
+- **Menu** — `tablet.*` rows appended to
+  `~/.config/omarchy/extensions/omarchy-menu.jsonc` (toggle + rotate 0/90/
+  180/270), hot-reload.
+- **Bind** — `SUPER+SHIFT+U` → `omarchy-shell maxt.tablet-experience
+  toggle` (SUPER+T/CTRL+T/ALT+T all taken by defaults).
+- Validated (`omarchy plugin validate` exit 0), enabled `--section right`,
+  IPC full roundtrip tested (toggle laptop⇄tablet, setRotation 2, getState
+  accurate), persistent props verified live, zero shell errors in journal.
+  Auto-reload on file change confirmed (shell "Local plugin changed,
+  reloading" debug lines).
 
 Cleared by controlled experiments: `gestures:workspace_swipe_touch` (off → no change), fcitx5 (fully stopped → no change), touch device hardware (raw coords verified correct), fonts/Rime.
 

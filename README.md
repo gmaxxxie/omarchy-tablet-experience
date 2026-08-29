@@ -2,7 +2,7 @@
 
 Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 + Hyprland 0.56.2 for the **Lenovo ThinkPad X12 Detachable Gen 1**.
 
-> **Current stage: PHASE 4 (virtual keyboard) — squeekboard + bottom-swipe gesture working, pending autostart & input verification**
+> **Current stage: PHASE 5+7/8 — rotation working (SUPER+CTRL+0..3); Laptop/Tablet state machine + Omarchy bar-widget plugin live (`maxt.tablet-experience`); Phase 12 camera verified via UVC**
 > Working location: `~/.config/omarchy/plugins/` (the plugin), source/docs live in this folder.
 
 ## Status board
@@ -14,8 +14,8 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 | 2 | Native workspace swipe | ✅ edge-swipe verified working (user-tested), `gestures:workspace_swipe_touch=true` |
 | 3 | Input method (Chinese) | ✅ fcitx5 + Rime + Wanxiang installed & deployed (see below) |
 | 4 | Virtual keyboard | 🟡 squeekboard (extra) core path **working**: D-Bus toggle ✓, bottom-edge up-swipe show ✓ (user-tested), `SUPER+U` bind ✓; pending autostart + touch/Chinese input verification |
-| 5–11 | rotation / state / UI / auto-switch | ⏳ pending (Phase 5 underway: manual rotation script+binds verified) |
-| 12 | **Hardware full bring-up (esp. camera)** | 🟡 camera **verified via UVC** (RGB MJPG + IR, see `PHASE12-HARDWARE.md`); IPU6 CSI path confirmed dead end. Fingerprint enrolled+live, BT scan verified, audio sinks/sources present. Remaining: `libcamera` install → browser test; user pair/unlock tests |
+| 5–11 | rotation / state / UI / auto-switch | 🟡 P5 ✅ rotation script+binds · P7/8 ✅ mode state machine + bar widget + menu + `SUPER+SHIFT+U` · P6/9/10 ⏳ |
+| 12 | **Hardware full bring-up (esp. camera)** | 🟡 camera **verified via UVC** (RGB MJPG + IR, see `PHASE12-HARDWARE.md`); IPU6 CSI confirmed dead end. libcamera now installed → browser test pending relogin. Fingerprint enrolled+live, BT scan verified, audio sinks/sources present |
 
 ## System facts (captured 2026-08-28)
 
@@ -56,12 +56,24 @@ config reloaded clean, binds registered. Touch/pen mapping follows the
 monitor automatically (`input:touchdevice:output=Auto`), awaiting physical
 verification.
 
-**Phase 6 — auto-rotation prep (needs 1 sudo install):** IIO accel_3d is live
-(g=(−0.35,−6.61,−8.21) m/s², dominant −z ⇒ `normal` posture). Probe script
-`omarchy-orient` (sysfs only, zero new packages; `--watch` for calibration)
-classifies normal/bottom-up/left-up/right-up. **Pending: `sudo pacman -S
-iio-sensor-proxy`** → standardised D-Bus orientation → wire to transform
-(Phase 7 state machine).
+**Phase 6 — auto-rotation (iio-sensor-proxy now installed; wiring pending):**
+IIO accel_3d live (g=(−0.35,−6.61,−8.21), dominant −z ⇒ `normal`). Probe
+`omarchy-orient` (sysfs; `--watch` to calibrate) classifies postures. Next:
+wiring orientation→transform through the state machine (Phase 7 service hook).
+
+**Phases 7+8 — Laptop/Tablet state machine + Omarchy plugin (done, live):**
+plugin `maxt.tablet-experience` (`service`+`bar-widget`) at
+`~/.config/omarchy/plugins/` (archived `plugin-source/`):
+- **Service.qml** — persistent mode (`PersistentProperties reloadableId`,
+  `laptop|tablet` + `tabletRotation` preset off/0°/180°), idempotent apply
+  (OSD + optional rotate on enter-tablet), Charm IPC:
+  `omarchy-shell maxt.tablet-experience {getState|getMode|toggle|setMode|setRotation}`
+- **BarWidget.qml** — mode button (left=toggle, right=rotation-preset ring);
+  nerd glyphs verified in JetBrainsMono Nerd Font
+- Menu rows `tablet.*` in `~/.config/omarchy/extensions/omarchy-menu.jsonc`
+- Bind `SUPER+SHIFT+U` → toggle (`SUPER+T` and friends already taken)
+- Enabled `--section right`; full IPC roundtrip tested, zero shell errors;
+  persistence survives shell reloads by design (same as omarchy.battery)
 
 **Hardware (Phase 12):** camera output verified — device is a USB camera bridge
 with two UVC functions: `/dev/video64` RGB (MJPG 2592x1944 max) and
@@ -70,8 +82,8 @@ see `PHASE12-HARDWARE.md`). Intel IPU6 CSI path is a confirmed dead end
 (`IPU6 in secure mode`, `ov8856: failed to find sensor: -5`) — `/dev/video0–63`
 isys nodes are junk. Fingerprint: enrolled (`#0: right-index-finger`), sudo PAM
 prompt verified live. BT AX201 scan verified. Audio: SOF sinks + 2 mics via
-WirePlumber. **Portal/browser camera still needs `sudo pacman -S libcamera`**
-(PipeWire's v4l2 monitor hides the UVC device).
+WirePlumber. **`libcamera` installed (user) — browser camera test pending a
+relogin/restart so WirePlumber picks the UVC device up.**
 
 - `gestures:workspace_swipe_touch = true` (Phase 2, verified)
 - VK renderer: **squeekboard** — D-Bus `sm.puri.OSK0.SetVisible`, state property `.Visible` (toggle = read-then-invert)
@@ -81,12 +93,13 @@ WirePlumber. **Portal/browser camera still needs `sudo pacman -S libcamera`**
 
 ## Next actions
 
-1. **Camera ported into apps:** `sudo pacman -S libcamera` (official) → restart session / wireplumber → test in Chromium (webcamtests.com). Done by user (sudo needs fingerprint).
-2. **Verify input through squeekboard:** touch a key in a foot/editor/browser — confirms Wayland key injection; then fcitx5 Rime pinyin via VK (Ctrl+Space, type `nihao` → candidates).
-3. **User device tests:** unlock via fingerprint; pair a BT device; speaker/mic playback+record.
-4. **Gesture daemon autostart persisted** (`autostart.lua` — takes effect next login; current daemon already running). Confirm gesture feel on next login.
-5. Optional cleanups: blacklist `intel-ipu6` modules (remove 64 junk video nodes), `gst-plugins-good` for gst pipelines.
-6. Later phases: 5 rotation, 6 iio-sensor-proxy orientation, 7 Laptop/Tablet state, 8 plugin, 9 udev keyboard watcher, 10 auto-switch, 11 gestures.
+1. **Phase 5+8 user verification (physical):** rotate via `SUPER+CTRL+1/2/3/0` and confirm touch/pen mapping per orientation; watch the new bar button → left-click toggles Laptop/Tablet (OSD), right-click cycles the rotation preset; `SUPER+SHIFT+U` toggles too; menu → Tablet submenu.
+2. **Relogin, then browser camera test:** libcamera is installed — after next relogin test webcamtests.com in Chromium. Then iio-sensor-proxy wiring (Phase 6): `monitor-sensor` calibration → optional auto-orientation hook into the service.
+3. **Verify input through squeekboard:** touch a key in a foot/editor/browser — confirms Wayland key injection; then fcitx5 Rime pinyin via VK (Ctrl+Space, type `nihao` → candidates).
+4. **User device tests:** unlock via fingerprint; pair a BT device; speaker/mic playback+record.
+5. **Gesture daemon autostart persisted** (`autostart.lua` — takes effect next login; current daemon already running). Confirm gesture feel on next login.
+6. Optional cleanups: blacklist `intel-ipu6` modules (remove 64 junk video nodes), `gst-plugins-good` for gst pipelines.
+7. Later phases: 6 auto-orientation (after install), 9 udev keyboard watcher → 10 auto-switch (opt-in), 11 gestures, 12 remaining device tests.
 
 ## Repository layout
 
@@ -100,5 +113,7 @@ omarchy-tablet-experience/
 │   ├── omarchy-rotate  ← Phase 5 rotation helper (0/90/180/270 + OSD)
 │   └── omarchy-orient  ← Phase 6 IIO accel posture probe (--watch to calibrate)
 ├── config/hypr/tablet-experience.lua   ← archived copy of the live hypr config
-└── (later) plugin-source/  ← the Quattro plugin (service + bar-widget + panel)
+├── plugin-source/
+│   └── maxt.tablet-experience/  ← Phase 7/8 Quattro plugin (Service + BarWidget + manifest)
+└── (later) panel extras, udev watcher, auto-switch
 ```

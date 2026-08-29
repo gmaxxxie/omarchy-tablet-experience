@@ -15,6 +15,10 @@ hl.bind("SUPER + U", hl.dsp.exec_cmd("omarchy-vk toggle"), {
   description = "Toggle virtual keyboard (squeekboard)",
 })
 
+hl.bind("SUPER + SHIFT + U", hl.dsp.exec_cmd("omarchy-shell maxt.tablet-experience toggle"), {
+  description = "Toggle Laptop/Tablet mode (tablet experience)",
+})
+
 hl.bind("SUPER + CTRL + 0", hl.dsp.exec_cmd("omarchy-rotate 0"), {
   description = "Rotate screen: landscape 0°",
 })
