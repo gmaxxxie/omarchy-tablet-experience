@@ -3,7 +3,7 @@
 Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 + Hyprland 0.56.2 for the **Lenovo ThinkPad X12 Detachable Gen 1**.
 
 > **Current stage: PHASE 5+7/8 — rotation working (SUPER+SHIFT+R cycles); Laptop/Tablet state machine + Omarchy bar-widget plugin live (`maxt.tablet-experience`); Phase 12 camera verified via UVC**
-> **v0.5.8 (2026-08-29): 键盘接入/拆开自动切换模式(autoSwitchMode 默认开: 接入→laptop, 拆开→tablet); 弹层底部加两行留白**
+> **v0.6.0 (2026-08-29): 进入 tablet 模式时 rotation 默认为 auto(传感器跟随)——未固定方向时自动开启; 弹层底部留白 24; 键盘自动切换模式默认开**
 > Working location: `~/.config/omarchy/plugins/` (the plugin), source/docs live in this folder.
 
 ## Status board
