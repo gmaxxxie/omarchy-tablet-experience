@@ -11,8 +11,9 @@ import Quickshell.Io
 //   autoOrient       opt-in: follow iio-sensor-proxy orientation while in
 //                    tablet mode (normal→0°, left-up→90°, bottom-up→180°,
 //                    right-up→270°); overrides the manual/preset rotation
-//   autoSwitchMode   opt-in: keyboard USB attach/detach (17ef:60fe) drives
-//                    mode automatically (attached→laptop, detached→tablet)
+//   autoSwitchMode   keyboard USB attach/detach (17ef:60fe) drives the mode
+//                    automatically (attached→laptop, detached→tablet). ON by
+//                    default; disable with IPC setAutoSwitch off
 //
 // Side effects are applied idempotently; auto-orientation applies silently
 // (no OSD), manual switches show OSD feedback.
@@ -52,7 +53,9 @@ Item {
     // off(initial) | auto(sensor) | "0" | "1" | "2" | "3"
     property string tabletRotation: "off"
     property bool autoOrient: false
-    property bool autoSwitchMode: false
+    // Folio keyboard attach/detach drives the mode: attached → laptop,
+    // detached → tablet. Default ON — the X12 is a detachable.
+    property bool autoSwitchMode: true
   }
 
   // ------------------------------------------------------------- actions

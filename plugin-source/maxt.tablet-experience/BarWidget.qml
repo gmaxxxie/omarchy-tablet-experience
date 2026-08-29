@@ -222,6 +222,12 @@ Panel {
           }
         }
       }
+
+      // Bottom breathing room (two rows) so the card does not hug the last row.
+      Item {
+        width: parent.width
+        height: Style.space(80)
+      }
     }
   }
 
