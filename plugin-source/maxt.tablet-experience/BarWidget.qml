@@ -33,8 +33,10 @@ Panel {
 
   function rotationLabel() {
     if (root.tabletRotation === "0") return "landscape 0°"
+    if (root.tabletRotation === "1") return "portrait 90°"
     if (root.tabletRotation === "2") return "flipped 180°"
-    return "off"
+    if (root.tabletRotation === "3") return "portrait 270°"
+    return "off (initial)"
   }
 
   function runAction(args) {

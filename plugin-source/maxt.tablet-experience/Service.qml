@@ -49,7 +49,7 @@ Item {
     id: persisted
     reloadableId: "maxt-tablet-experience"
     property string mode: "laptop"
-    property string tabletRotation: "off"   // off | "0" | "2"
+    property string tabletRotation: "off"   // off(initial) | "0" | "1" | "2" | "3"
     property bool autoOrient: false
     property bool autoSwitchMode: false
   }
@@ -68,34 +68,45 @@ Item {
   }
 
   function cycleRotationPreset() {
-    // off -> 2 (fold) -> 0 (landscape) -> off; 90/270 portrait is a manual
-    // rotate-while-in-tablet decision, not a mode-exit default.
-    var ring = ["off", "2", "0"]
-    if (persisted.tabletRotation === "off") setRotationPreset("2")
-    else if (persisted.tabletRotation === "2") setRotationPreset("0")
-    else setRotationPreset("off")
+    // off (initial) -> 0° -> 90° -> 180° -> 270° -> off
+    var ring = ["off", "0", "1", "2", "3"]
+    var idx = ring.indexOf(persisted.tabletRotation)
+    setRotationPreset(ring[(idx + 1) % ring.length])
+  }
+
+  // The rotation a preset means: "off" = back to the initial orientation.
+  function rotationTarget(value) {
+    return value === "off" ? "0" : value
   }
 
   function setRotationPreset(value) {
-    if (["off", "0", "2"].indexOf(value) === -1) return
+    if (["off", "0", "1", "2", "3"].indexOf(value) === -1) return
     persisted.tabletRotation = value
-    osd("rotate-cw", "Tablet rotation: " + rotationLabel(value))
+    osd("rotate-cw", "Rotation: " + rotationLabel(value))
+    // In tablet mode apply immediately (auto-orient hands this to the
+    // sensor instead); entering tablet mode re-applies it via applyNext.
+    if (isTabletMode && !persisted.autoOrient && !rotateProcess.running) {
+      rotateProcess.command = ["omarchy-rotate", rotationTarget(value)]
+      rotateProcess.running = true
+    }
   }
 
   function rotationLabel(value) {
     if (value === "0") return "landscape 0°"
+    if (value === "1") return "portrait 90°"
     if (value === "2") return "flipped 180°"
-    return "off (manual)"
+    if (value === "3") return "portrait 270°"
+    return "off (initial)"
   }
 
   // Idempotent side-effect pass — only runs on real transitions.
   function applyNext() {
     osd("tablet", isTabletMode ? "Tablet mode" : "Laptop mode")
     if (!isTabletMode) return
-    // With auto-orientation live, the sensor takes over immediately; the
-    // preset would fight it a second later, so skip it.
-    if (!persisted.autoOrient && persisted.tabletRotation !== "off") {
-      rotateProcess.command = ["omarchy-rotate", persisted.tabletRotation]
+    // Auto-orientation hands the display to the sensor; otherwise apply the
+    // preset (off = back to initial 0°).
+    if (!persisted.autoOrient && !rotateProcess.running) {
+      rotateProcess.command = ["omarchy-rotate", rotationTarget(persisted.tabletRotation)]
       rotateProcess.running = true
     }
   }
