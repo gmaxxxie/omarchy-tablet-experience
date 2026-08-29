@@ -98,6 +98,16 @@ Item {
     }
   }
 
+  // Fixed mode keeps the CURRENT screen orientation as the preset (so
+  // leaving auto does not snap back to 0°). Falls back to off/initial.
+  function toFixedMode() {
+    if (isTabletMode) {
+      if (!monitorProbe.running) monitorProbe.running = true
+    } else {
+      setRotationPreset("off")
+    }
+  }
+
   function rotationLabel(value) {
     if (value === "auto") return "auto (sensor)"
     if (value === "0") return "landscape 0°"
@@ -165,6 +175,23 @@ Item {
 
   Process { id: osdProcess }
   Process { id: rotateProcess }
+
+  // Reads the current monitor transform so "Fixed" can freeze the screen
+  // where it currently is instead of snapping back to 0°.
+  Process {
+    id: monitorProbe
+    command: ["hyprctl", "monitors", "-j"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        try {
+          var ms = JSON.parse(text || "[]")
+          if (Array.isArray(ms) && ms.length > 0)
+            root.setRotationPreset(String(ms[0].transform || "0"))
+        } catch (e) {}
+      }
+    }
+  }
 
   Process {
     id: orientationProbe

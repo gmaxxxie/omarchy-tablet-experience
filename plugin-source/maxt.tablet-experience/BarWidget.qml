@@ -31,15 +31,6 @@ Panel {
   property string wsLayout: "dwindle"
   property bool showMoveGrid: false
 
-  function rotationLabel() {
-    if (root.tabletRotation === "auto") return "auto (sensor)"
-    if (root.tabletRotation === "0") return "landscape 0°"
-    if (root.tabletRotation === "1") return "portrait 90°"
-    if (root.tabletRotation === "2") return "flipped 180°"
-    if (root.tabletRotation === "3") return "portrait 270°"
-    return "off (initial)"
-  }
-
   function runAction(args) {
     actProc.command = args
     actProc.running = true
@@ -186,12 +177,47 @@ Panel {
         }
       }
 
-      Button {
+      PanelSectionHeader {
+        text: "Rotation"
+      }
+
+      Row {
         width: parent.width
-        height: Style.space(40)
-        iconText: "⟳"
-        text: "Rotation: " + root.rotationLabel()
-        onClicked: { if (root.service) root.service.cycleRotationPreset() }
+        spacing: Style.spacing.sm
+
+        Button {
+          width: (parent.width - parent.spacing) / 2
+          height: Style.space(40)
+          text: "Auto"
+          active: root.tabletRotation === "auto"
+          onClicked: { if (root.service) root.service.setRotationPreset("auto") }
+        }
+        Button {
+          width: (parent.width - parent.spacing) / 2
+          height: Style.space(40)
+          text: "Fixed"
+          active: root.tabletRotation !== "auto"
+          onClicked: { if (root.service) root.service.toFixedMode() }
+        }
+      }
+
+      // Fixed direction picker: shown only in fixed mode.
+      Row {
+        id: dirRow
+        width: parent.width
+        visible: root.tabletRotation !== "auto"
+        spacing: Style.spacing.sm
+
+        Repeater {
+          model: ["0°", "90°", "180°", "270°"]
+          delegate: Button {
+            width: (dirRow.width - dirRow.spacing * 3) / 4
+            height: Style.space(40)
+            text: modelData
+            active: root.tabletRotation === String(index)
+            onClicked: { if (root.service) root.service.setRotationPreset(String(index)) }
+          }
+        }
       }
     }
   }

@@ -3,7 +3,7 @@
 Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 + Hyprland 0.56.2 for the **Lenovo ThinkPad X12 Detachable Gen 1**.
 
 > **Current stage: PHASE 5+7/8 — rotation working (SUPER+SHIFT+R cycles); Laptop/Tablet state machine + Omarchy bar-widget plugin live (`maxt.tablet-experience`); Phase 12 camera verified via UVC**
-> **v0.5.5 (2026-08-29): 旋转预设加入 auto(传感器跟随, iio-sensor-proxy)——循环: off→auto→0°→90°→180°→270°→off; 固定角度/off 自动关闭 sensor 跟随**
+> **v0.5.6 (2026-08-29): 旋转 UI 改为 Auto ⇄ Fixed 两段式——主切换 auto(传感器)/fixed(固定方向), fixed 下再选 0°/90°/180°/270°; 从 auto 切 fixed 保持当前屏幕方向**
 > Working location: `~/.config/omarchy/plugins/` (the plugin), source/docs live in this folder.
 
 ## Status board
@@ -17,7 +17,7 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 | 4 | Virtual keyboard | 🟡 squeekboard (extra) core path **working**: D-Bus toggle ✓, bottom-edge up-swipe show ✓ (user-tested), `SUPER+U` bind ✓; pending autostart + touch/Chinese input verification |
 | 5–11 | rotation / state / UI / auto-switch | 🟡 P5 ✅ · P7/8 ✅ · P6/9/10 wired on disk (auto-orient + kb watcher + auto-switch, opt-in) ⏳ activate at next login · **P11 ✅ `omarchy-touch` multi-touch daemon (synthetics-tested, live, needs 2-finger pass)** |
 | 12 | **Hardware full bring-up (esp. camera)** | 🟡 camera **verified via UVC** (RGB MJPG + IR, see `PHASE12-HARDWARE.md`); IPU6 CSI confirmed dead end. libcamera now installed → browser test pending relogin. Fingerprint enrolled+live, BT scan verified, audio sinks/sources present |
-| 13 | **Tablet window manage (v0.5.5: close / move ws / layout + rotation presets incl. auto)** | ✅ live. Always-mounted bar entry: laptop → `Laptop` button (popup = mode/rotation only); tablet → `窗口` button unlocking close ✕ / move-to-workspace grid (1–10) / Dwindle·Scrolling switch (persisted like SUPER+L). Max/min/restore removed. Targeting = window under last touch, visible windows only. **New: omarchy-touch single-finger tap now FOCUSES the tapped visible window** (Hyprland touch never focuses — Touch.cpp; this mattered in scrolling layout where windows sit off-view). Verified: focus dispatch changes activewindow; move/layout/close re-verified. Notification feedback on move/layout |
+| 13 | **Tablet window manage (v0.5.6: close / move ws / layout + Auto⇄Fixed rotation)** | ✅ live. Always-mounted bar entry: laptop → `Laptop` button (popup = mode/rotation only); tablet → `窗口` button unlocking close ✕ / move-to-workspace grid (1–10) / Dwindle·Scrolling switch (persisted like SUPER+L). Max/min/restore removed. Targeting = window under last touch, visible windows only. **New: omarchy-touch single-finger tap now FOCUSES the tapped visible window** (Hyprland touch never focuses — Touch.cpp; this mattered in scrolling layout where windows sit off-view). Verified: focus dispatch changes activewindow; move/layout/close re-verified. Notification feedback on move/layout |
 
 ## System facts (captured 2026-08-28)
 
