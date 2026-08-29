@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""Probe whether the omarchy top bar receives touch input.
+
+Synthesises real touch taps (uinput, Wacom-like ranges) on a horizontal
+strip across the bar (y = raw 130 ≈ 15/800 logical). For each tap it
+reports whether the tablet-experience mode toggled (the bar's mode button
+was hit) or the workspace changed — proof the bar surface received input.
+
+Usage: omarchy-bar-probe [-c]   (-c: also cycle through 5 x positions)
+"""
+import sys
+import time
+import subprocess
+
+from evdev import UInput, ecodes, AbsInfo
+
+X_MAX, Y_MAX = 10368, 6912
+BAR_Y = 130                 # raw y ≈ logical 15px (bar is 30px tall)
+POSITIONS = [200, 400, 600, 800, 1000]   # logical x candidates
+
+
+def get_state():
+    out = subprocess.run(["omarchy-shell", "maxt.tablet-experience", "getState"],
+                         capture_output=True, text=True).stdout
+    try:
+        import json
+        d = json.loads(out)
+        return d.get("mode"), None
+    except Exception:
+        return None, out.strip()[:40]
+
+
+def tap(ui, x, y):
+    ui.write(ecodes.EV_ABS, ecodes.ABS_MT_SLOT, 0)
+    ui.write(ecodes.EV_ABS, ecodes.ABS_MT_TRACKING_ID, 1)
+    ui.write(ecodes.EV_ABS, ecodes.ABS_MT_POSITION_X, x)
+    ui.write(ecodes.EV_ABS, ecodes.ABS_MT_POSITION_Y, y)
+    ui.syn()
+    time.sleep(0.05)
+    ui.write(ecodes.EV_ABS, ecodes.ABS_MT_TRACKING_ID, -1)
+    ui.syn()
+
+
+def main():
+    cap = {
+        ecodes.EV_KEY: [ecodes.BTN_TOUCH],
+        ecodes.EV_ABS: [
+            (ecodes.ABS_MT_SLOT, AbsInfo(0, 0, 9, 0, 0, 0)),
+            (ecodes.ABS_MT_TRACKING_ID, AbsInfo(0, 0, 65535, 0, 0, 0)),
+            (ecodes.ABS_MT_POSITION_X, AbsInfo(0, 0, X_MAX, 0, 0, 0)),
+            (ecodes.ABS_MT_POSITION_Y, AbsInfo(0, 0, Y_MAX, 0, 0, 0)),
+        ],
+    }
+    ui = UInput(cap, name="omarchy-bar-probe")
+    time.sleep(0.5)
+    print("probe device created; settling 2s", flush=True)
+    time.sleep(2)
+
+    xs = POSITIONS if "-c" in sys.argv[1:] else [1000]
+    for lx in xs:
+        rx = int(lx / 1200 * X_MAX)
+        before = get_state()[0]
+        tap(ui, rx, BAR_Y)
+        time.sleep(0.35)
+        after = get_state()[0]
+        flag = ""
+        if after != before:
+            flag = f"  << MODE TOGGLED {before}->{after} (bar HIT)"
+        print(f"tap x={lx} -> mode={after}{flag}", flush=True)
+
+    ui.close()
+    print("done", flush=True)
+
+
+if __name__ == "__main__":
+    main()
