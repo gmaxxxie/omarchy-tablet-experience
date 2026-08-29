@@ -1,49 +1,75 @@
 #!/usr/bin/env bash
-# omarchy-window — window actions for the tablet bar button.
+# omarchy-window — tablet window actions (bar popup for Omarchy).
 #
-# Hyprland does NOT focus windows on touch tap (see Touch.cpp), so "the
-# focused window" is the wrong target on a touchscreen. These actions instead
-# target the window the user LAST TOUCHED, as recorded by the omarchy-touch
-# daemon (~/.local/state/omarchy-touch/touch-state), falling back to the
-# focused window when there is no fresh touch:
+# Everything is touch-first. Hyprland does NOT focus windows on touch tap
+# (Touch.cpp), so "the focused window" is the wrong target on a touchscreen;
+# these actions target the window under the LAST TOUCH first (recorded by the
+# omarchy-touch daemon in ~/.local/state/omarchy-touch/touch-state), falling
+# back to the focused window.
 #
-#   resolve               print the target address (state -> focused)
+# Hidden windows (special/scratchpad workspace) are never targeted — an
+# invisible window getting "closed"/"moved" is a classic no-op-feeling bug.
+#
+# Subcommands:
+#   resolve               print target address (last-touch > focused)
 #   resolve --at X Y      print the window at logical coords (no fallback)
 #   close                 close the target (graceful)
-#   minimize              move the target to the scratchpad (special
-#                         workspace — Hyprland has no native minimize)
-#   maximize              toggle maximize (client-side fullscreen state)
-#   default               restore: un-maximize, un-fullscreen, un-float
+#   move <ws>             move the target to workspace <ws> (silently)
+#   layout <dwindle|scrolling|toggle>
+#                         set/toggle the ACTIVE workspace layout, persisted
+#                         exactly like omarchy's own SUPER+L toggle
+#                         (~/.local/state/omarchy/workspace-layouts/<ws>.lua)
 #
-# All dispatches go through the Hyprland 0.56 Lua API via hyprctl eval
-# (the old `hyprctl dispatch` shim mangles arguments in Lua mode).
+# Options: --dry-run  print what would run instead of running it
 #
-# Options: --dry-run  print the resolved address/command instead of running
+# Dispatches go through the Hyprland 0.56 Lua API (hyprctl eval) — the old
+# `hyprctl dispatch` shim mangles arguments in Lua mode.
 
 set -eu
 
 TOUCH_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-touch/touch-state"
 STATE_FRESH_S=8
+LAYOUTS_DIR="$HOME/.local/state/omarchy/workspace-layouts"
 
 ACTION="${1:-resolve}"
 shift || true
 AT_X=""
 AT_Y=""
+POS=()
 DRY_RUN=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --at) AT_X="${2:-}"; AT_Y="${3:-}"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
-    *) shift ;;
+    *) POS+=("$1"); shift ;;
   esac
 done
 
 # ------------------------------------------------------------------ resolve
 
-# Hit-test `hyprctl clients -j` at logical (x, y): topmost mapped window on
-# the active workspace of the monitor the point lies in. Prints the bare
-# address ("0x…"), nothing when no window covers the point.
+# Addresses of all mapped, visible (non-special) windows.
+visible_windows() {
+  hyprctl clients -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    clients = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for c in clients:
+    if not c.get("mapped") or c.get("hidden"):
+        continue
+    ws = (c.get("workspace") or {})
+    if str(ws.get("name", "")).startswith("special:"):
+        continue
+    addr = c.get("address")
+    if addr:
+        sys.stdout.write(addr + "\n")
+' 2>/dev/null
+}
+
+# Hit-test `hyprctl clients -j` at logical (x, y): topmost VISIBLE window on
+# the active workspace. Prints the bare address, nothing when no window.
 hit_test() {
   local x="$1" y="$2"
   hyprctl clients -j 2>/dev/null | AT="$x $y" python3 -c '
@@ -68,6 +94,8 @@ except Exception:
 best = None
 for c in clients:
     if not c.get("mapped") or c.get("hidden"):
+        continue
+    if str((c.get("workspace") or {}).get("name", "")).startswith("special:"):
         continue
     if ws is not None and (c.get("workspace") or {}).get("id") != ws:
         continue
@@ -99,21 +127,26 @@ resolve() {
     if [ -n "$pt" ]; then
       set -- $pt
       local lx="${1:-}" ly="${2:-}" told="${3:-}"
-      # Stored window address wins when the window still exists; the point
-      # covers the case where it was recorded without one (or has moved).
-      if [ -n "$told" ] && hyprctl clients -j 2>/dev/null | grep -q "$told"; then
+      # Stored address wins only while that window is still VISIBLE (on a
+      # regular workspace). A minimized/scratchpad window must not be the
+      # target of close/move — operating on an invisible window looks like
+      # the action "doing nothing".
+      if [ -n "$told" ] && visible_windows | grep -qx "$told"; then
         addr="$told"
       elif [ -n "$lx" ] && [ -n "$ly" ]; then
         addr="$(hit_test "$lx" "$ly")"
       fi
     fi
     if [ -z "$addr" ]; then
-      # No fresh touch (laptop / keyboard use): the focused window is right.
+      # No (valid) touch: the focused window — but only if it is visible.
       addr="$(hyprctl activewindow -j 2>/dev/null | python3 -c '
 import json, sys
 try:
     d = json.load(sys.stdin)
 except Exception:
+    sys.exit(0)
+ws = str((d.get("workspace") or {}).get("name", ""))
+if str(ws).startswith("special:") or d.get("hidden"):
     sys.exit(0)
 sys.stdout.write(d.get("address", "") if isinstance(d, dict) else "")
 ' 2>/dev/null || true)"
@@ -122,9 +155,19 @@ sys.stdout.write(d.get("address", "") if isinstance(d, dict) else "")
   printf '%s' "$addr"
 }
 
+# ------------------------------------------------------------- notification
+
+notify() {  # notify <glyph> <headline> [description]
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "omarchy-notification-send -g $1 \"$2\" ${3:-}"
+    return 0
+  fi
+  omarchy-notification-send -g "$1" "$2" ${3:-} >/dev/null 2>&1 || true
+}
+
 # ---------------------------------------------------------------- dispatch
 
-lua_call() {  # lua_call "<lua expression>" -> dispatch it
+lua_call() {  # lua_call "<lua expression>"
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "hyprctl eval $1"
     return 0
@@ -132,33 +175,67 @@ lua_call() {  # lua_call "<lua expression>" -> dispatch it
   hyprctl eval "$1" >/dev/null 2>&1 || true
 }
 
-window_sel() {  # whole ACTION argument table in ONE call: { window, ...opts }
-  printf "{ window = 'address:%s'" "$1"
-}
-
-ADDR="$(resolve)"
-[ -n "$ADDR" ] || exit 0
+win() { printf "{ window = 'address:%s'" "$1"; }
 
 case "$ACTION" in
   resolve)
+    ADDR="$(resolve)"
     echo "$ADDR"
     ;;
   close)
-    lua_call "hl.dispatch(hl.dsp.window.close($(window_sel "$ADDR") }))"
+    ADDR="$(resolve)"
+    [ -n "$ADDR" ] || exit 0
+    lua_call "hl.dispatch(hl.dsp.window.close($(win "$ADDR") }))"
     ;;
-  minimize)
-    lua_call "hl.dispatch(hl.dsp.window.move($(window_sel "$ADDR"), workspace = 'special:scratchpad', follow = false }))"
+  move)
+    WS="${POS[0]-}"
+    [ -n "$WS" ] || { echo "usage: omarchy-window move <workspace-id>" >&2; exit 2; }
+    ADDR="$(resolve)"
+    [ -n "$ADDR" ] || exit 0
+    lua_call "hl.dispatch(hl.dsp.window.move($(win "$ADDR"), workspace = '${WS}', follow = false }))"
+    notify "➜" "窗口已移动到工作区 ${WS}"
     ;;
-  maximize)
-    lua_call "hl.dispatch(hl.dsp.window.fullscreen($(window_sel "$ADDR"), mode = 'maximized', action = 'toggle', layout_aware = true }))"
-    ;;
-  default)
-    lua_call "hl.dispatch(hl.dsp.window.fullscreen($(window_sel "$ADDR"), mode = 'fullscreen', action = 'unset' }))"
-    lua_call "hl.dispatch(hl.dsp.window.fullscreen($(window_sel "$ADDR"), mode = 'maximized', action = 'unset' }))"
-    lua_call "hl.dispatch(hl.dsp.window.float($(window_sel "$ADDR"), action = 'disable' }))"
+  layout)
+    MODE="${POS[0]:-toggle}"
+    CUR="$(hyprctl activeworkspace -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+sys.stdout.write(str(d.get("tiledLayout") or ""))
+' 2>/dev/null || true)"
+    case "$MODE" in
+      toggle) [ "$CUR" = "dwindle" ] && MODE=scrolling || MODE=dwindle ;;
+      dwindle|scrolling) : ;;
+      *) echo "usage: omarchy-window layout <dwindle|scrolling|toggle>" >&2; exit 2 ;;
+    esac
+    [ "$MODE" = "$CUR" ] && { notify "󱂬" "工作区已经是 $MODE 布局"; exit 0; }
+
+    WS="$(hyprctl activeworkspace -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+sys.stdout.write(str(d.get("id") or ""))
+' 2>/dev/null || true)"
+    [ -n "$WS" ] || exit 0
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+      echo "mkdir -p $LAYOUTS_DIR"
+      echo "printf 'hl.workspace_rule({ workspace = \"%s\", layout = \"%s\" })\\n' $WS $MODE > $LAYOUTS_DIR/$WS.lua"
+    else
+      mkdir -p "$LAYOUTS_DIR"
+      printf 'hl.workspace_rule({ workspace = "%s", layout = "%s" })\n' "$WS" "$MODE" >"$LAYOUTS_DIR/$WS.lua"
+    fi
+    # Same shape as omarchy's own SUPER+L toggle (workspace-layouts are
+    # re-applied on login by default.hypr.workspace-layouts).
+    lua_call "hl.workspace_rule({ workspace = '$WS', layout = '$MODE' })"
+    notify "󱂬" "工作区 ${WS} 布局 → $MODE"
     ;;
   *)
-    echo "usage: omarchy-window <resolve|close|minimize|maximize|default> [--at X Y] [--dry-run]" >&2
+    echo "usage: omarchy-window <resolve|close|move <ws>|layout <dwindle|scrolling|toggle>> [--at X Y] [--dry-run]" >&2
     exit 2
     ;;
 esac

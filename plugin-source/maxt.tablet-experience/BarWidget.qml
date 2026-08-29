@@ -4,18 +4,20 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// Tablet Experience — bar widget (Phase 8, v0.3: window-manage popup).
+// Tablet Experience — bar widget (v0.4): tablet-only window-manage popup.
 //
-// One bar button that opens a small popup with touch-sized actions:
-//   ✕ 关闭窗口   — omarchy-window close   (window under last touch / focused)
-//   ─ 最小化     — omarchy-window minimize (move to scratchpad special ws)
-//   ⛶ 最大化     — omarchy-window maximize (toggle)
-//   ⟲ 还原默认   — omarchy-window default  (un-max + un-fullscreen + un-float)
-//   Laptop/Tablet mode toggle + rotation preset cycle (kept from v0.2)
+// The bar button and all window-management entries ONLY appear while the
+// machine is in Tablet mode (laptop mode keeps the bar clean; the mode can
+// still be switched from inside the popup, SUPER+SHIFT+U, or the menu).
 //
-// Tablet mode: the label becomes 窗口 (window manage); the actions target the
-// window the user last touched, tracked by the omarchy-touch daemon —
-// Hyprland does not focus windows on touch tap, so "focused" is wrong there.
+// Popup actions (touch-first; target = window under the last touch, because
+// Hyprland does not focus windows on touch tap):
+//   ✕ 关闭窗口            omarchy-window close
+//   ➜ 移动到工作区 N      omarchy-window move N        (grid 1..10)
+//   Dwindle / Scrolling   omarchy-window layout <mode> (active workspace,
+//                         persisted like omarchy's own SUPER+L toggle)
+//   Laptop / Tablet       mode switch (same as before)
+//   旋转预设               rotation preset cycle
 
 Panel {
   id: root
@@ -26,18 +28,30 @@ Panel {
   readonly property bool tablet: service ? service.isTabletMode : false
   readonly property var tabletRotation: service ? service.tabletRotation : "off"
 
+  // Active workspace polling (id + tiled layout) for the move grid and the
+  // layout buttons. Reloads 700ms after any layout/move action.
+  property int wsId: 1
+  property string wsLayout: "dwindle"
+  property bool showMoveGrid: false
+
   function rotationLabel() {
     if (root.tabletRotation === "0") return "landscape 0°"
     if (root.tabletRotation === "2") return "flipped 180°"
     return "off"
   }
 
-  function runAction(action) {
-    actProc.command = ["omarchy-window", action]
+  function runAction(args) {
+    actProc.command = args
     actProc.running = true
+    // Re-poll the workspace after the action lands.
+    pollTimer.interval = 700
+    pollTimer.restart()
   }
 
   Process { id: actProc }
+
+  // --------- the button + popup are tablet-mode only
+  visible: root.tablet
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -46,10 +60,10 @@ Panel {
     id: button
     anchors.centerIn: parent
     bar: root.bar
-    text: root.tablet ? "窗口" : "Laptop"
-    tooltipText: root.tablet
-      ? "Window manage (close / minimize / maximize / restore) + Tablet mode"
-      : "Window manage + Laptop/Tablet mode"
+    text: "窗口"
+    active: root.opened
+    useActiveColor: true
+    tooltipText: "Window manage: close / move workspace / layout"
 
     onPressed: function(btn) {
       if (btn === Qt.RightButton && root.service) root.service.cycleRotationPreset()
@@ -64,7 +78,7 @@ Panel {
     bar: root.bar
     open: root.opened
     triggerMode: "click"
-    contentWidth: panel.fittedContentWidth(Style.space(230))
+    contentWidth: panel.fittedContentWidth(Style.space(240))
     contentHeight: panel.fittedContentHeight(actionList.implicitHeight)
 
     Column {
@@ -81,25 +95,64 @@ Panel {
         height: Style.space(40)
         iconText: "✕"
         text: "关闭窗口"
-        onClicked: { root.runAction("close"); root.close() }
+        onClicked: { root.runAction(["omarchy-window", "close"]); root.close() }
       }
+
       Button {
         height: Style.space(40)
-        iconText: "─"
-        text: "最小化"
-        onClicked: { root.runAction("minimize"); root.close() }
+        iconText: "➜"
+        text: "移动到工作区"
+        onClicked: { root.showMoveGrid = !root.showMoveGrid }
       }
-      Button {
-        height: Style.space(40)
-        iconText: "⛶"
-        text: "最大化"
-        onClicked: { root.runAction("maximize"); root.close() }
+
+      // 2x5 grid of workspace targets; the current workspace is highlighted.
+      Grid {
+        id: wsGrid
+        visible: root.showMoveGrid
+        width: parent.width
+        columns: 5
+        rowSpacing: Style.spacing.sm
+        columnSpacing: Style.spacing.sm
+
+        Repeater {
+          model: 10
+          delegate: Button {
+            width: (wsGrid.width - wsGrid.columnSpacing * (wsGrid.columns - 1)) / wsGrid.columns
+            height: Style.space(32)
+            text: String(index + 1)
+            active: root.wsId === index + 1
+            onClicked: {
+              root.runAction(["omarchy-window", "move", String(index + 1)])
+              root.close()
+            }
+          }
+        }
       }
-      Button {
-        height: Style.space(40)
-        iconText: "⟲"
-        text: "还原默认"
-        onClicked: { root.runAction("default"); root.close() }
+
+      PanelSeparator { }
+
+      PanelSectionHeader {
+        text: "布局 · 工作区 " + root.wsId + (root.wsLayout === "scrolling" ? " (scrolling)" : "")
+      }
+
+      Row {
+        width: parent.width
+        spacing: Style.spacing.sm
+
+        Button {
+          width: (parent.width - parent.spacing) / 2
+          height: Style.space(40)
+          text: "Dwindle"
+          active: root.wsLayout === "dwindle"
+          onClicked: { root.runAction(["omarchy-window", "layout", "dwindle"]) }
+        }
+        Button {
+          width: (parent.width - parent.spacing) / 2
+          height: Style.space(40)
+          text: "Scrolling"
+          active: root.wsLayout === "scrolling"
+          onClicked: { root.runAction(["omarchy-window", "layout", "scrolling"]) }
+        }
       }
 
       PanelSeparator { }
@@ -117,7 +170,7 @@ Panel {
           height: Style.space(40)
           text: "Laptop"
           active: !root.tablet
-          onClicked: { if (root.service) root.service.setMode("laptop") }
+          onClicked: { if (root.service) { root.service.setMode("laptop") } }
         }
         Button {
           width: (parent.width - parent.spacing) / 2
@@ -135,6 +188,36 @@ Panel {
         text: "旋转预设: " + root.rotationLabel()
         onClicked: { if (root.service) root.service.cycleRotationPreset() }
       }
+    }
+  }
+
+  // -------- active-workspace poll (id + tiled layout)
+  Process {
+    id: wsProbe
+    running: true
+    command: ["hyprctl", "activeworkspace", "-j"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        try {
+          var d = JSON.parse(text || "{}")
+          if (d.id !== undefined && d.tiledLayout !== undefined) {
+            root.wsId = d.id
+            root.wsLayout = String(d.tiledLayout || "dwindle")
+          }
+        } catch (e) {}
+      }
+    }
+  }
+
+  Timer {
+    id: pollTimer
+    interval: 1500
+    running: root.visible && root.opened
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: {
+      if (!wsProbe.running) wsProbe.running = true
     }
   }
 }
