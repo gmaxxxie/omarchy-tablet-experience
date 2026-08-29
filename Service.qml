@@ -18,7 +18,9 @@ import Quickshell.Io
 //                    default; disable with IPC setAutoSwitch off
 //
 // Side effects are applied idempotently; auto-orientation applies silently
-// (no OSD), manual switches show OSD feedback.
+// (no OSD), manual switches show OSD feedback. Entering laptop mode always
+// forces the display back to the default 0° landscape (silently), while the
+// tablet rotation preset/autoOrient are kept for the next tablet entry.
 //
 // IPC (omarchy-shell maxt.tablet-experience <method>):
 //   getState | getMode | toggle | setMode <laptop|tablet>
@@ -148,7 +150,18 @@ Item {
   // Idempotent side-effect pass — only runs on real transitions.
   function applyNext() {
     osd("tablet", isTabletMode ? "Tablet mode" : "Laptop mode")
-    if (!isTabletMode) return
+    if (!isTabletMode) {
+      // Laptop: with the keyboard docked the panel is always used
+      // face-up, so the display always returns to the default 0°
+      // landscape. Silent (the mode OSD above already tells the user).
+      // The tablet rotation preset/autoOrient are NOT touched — they
+      // resume on the next tablet entry.
+      if (!rotateProcess.running) {
+        rotateProcess.command = ["texp-rotate", "-s", "0"]
+        rotateProcess.running = true
+      }
+      return
+    }
     // Entering tablet: default the rotation to sensor-following (auto)
     // unless an orientation was fixed explicitly.
     if (persisted.tabletRotation === "off") {
