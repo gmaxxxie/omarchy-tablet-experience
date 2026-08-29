@@ -7,9 +7,9 @@ import qs.Ui
 // Tablet Experience — bar widget (v0.5): always-mounted window-manage popup.
 //
 // The button is always visible so there is always an entry point: laptop
-// mode shows the mode label and the popup only offers Laptop/Tablet +
-// rotation; tablet mode switches the label to 窗口 and unlocks the
-// window-manage section (close / move-to-workspace / layout switch).
+// mode shows the mode label and the popup only offers Laptop/Tablet;
+// tablet mode switches the label to 窗口 and unlocks, in order:
+// Window (close / move-to-workspace) · Layout (dwindle/scrolling) · Rotation.
 //
 // Window targets are touch-first (Hyprland does not focus on touch tap):
 // each action targets the window under the LAST TOUCH, recorded by the
@@ -76,11 +76,38 @@ Panel {
       anchors.margins: Style.spacing.popupPadding
       spacing: Style.spacing.sm
 
-      // ---------- window manage section: tablet mode only
+      // ---- mode switch: always available
+      PanelSectionHeader {
+        text: "Tablet"
+      }
+
+      Row {
+        width: parent.width
+        spacing: Style.spacing.sm
+
+        Button {
+          width: (parent.width - parent.spacing) / 2
+          height: Style.space(40)
+          text: "Laptop"
+          active: !root.tablet
+          onClicked: { if (root.service) root.service.setMode("laptop") }
+        }
+        Button {
+          width: (parent.width - parent.spacing) / 2
+          height: Style.space(40)
+          text: "Tablet"
+          active: root.tablet
+          onClicked: { if (root.service) root.service.setMode("tablet") }
+        }
+      }
+
+      // ---- window / layout / rotation: unlocked in tablet mode only
       Column {
         visible: root.tablet
         width: parent.width
         spacing: Style.spacing.sm
+
+        PanelSeparator { }
 
         PanelSectionHeader {
           text: "Window"
@@ -149,73 +176,49 @@ Panel {
             onClicked: { root.runAction(["omarchy-window", "layout", "scrolling"]) }
           }
         }
-      }
 
-      PanelSeparator { }
+        PanelSeparator { }
 
-      PanelSectionHeader {
-        text: "Tablet"
-      }
-
-      Row {
-        width: parent.width
-        spacing: Style.spacing.sm
-
-        Button {
-          width: (parent.width - parent.spacing) / 2
-          height: Style.space(40)
-          text: "Laptop"
-          active: !root.tablet
-          onClicked: { if (root.service) root.service.setMode("laptop") }
+        PanelSectionHeader {
+          text: "Rotation"
         }
-        Button {
-          width: (parent.width - parent.spacing) / 2
-          height: Style.space(40)
-          text: "Tablet"
-          active: root.tablet
-          onClicked: { if (root.service) root.service.setMode("tablet") }
-        }
-      }
 
-      PanelSectionHeader {
-        text: "Rotation"
-      }
+        Row {
+          width: parent.width
+          spacing: Style.spacing.sm
 
-      Row {
-        width: parent.width
-        spacing: Style.spacing.sm
-
-        Button {
-          width: (parent.width - parent.spacing) / 2
-          height: Style.space(40)
-          text: "Auto"
-          active: root.tabletRotation === "auto"
-          onClicked: { if (root.service) root.service.setRotationPreset("auto") }
-        }
-        Button {
-          width: (parent.width - parent.spacing) / 2
-          height: Style.space(40)
-          text: "Fixed"
-          active: root.tabletRotation !== "auto"
-          onClicked: { if (root.service) root.service.toFixedMode() }
-        }
-      }
-
-      // Fixed direction picker: shown only in fixed mode.
-      Row {
-        id: dirRow
-        width: parent.width
-        visible: root.tabletRotation !== "auto"
-        spacing: Style.spacing.sm
-
-        Repeater {
-          model: ["0°", "90°", "180°", "270°"]
-          delegate: Button {
-            width: (dirRow.width - dirRow.spacing * 3) / 4
+          Button {
+            width: (parent.width - parent.spacing) / 2
             height: Style.space(40)
-            text: modelData
-            active: root.tabletRotation === String(index)
-            onClicked: { if (root.service) root.service.setRotationPreset(String(index)) }
+            text: "Auto"
+            active: root.tabletRotation === "auto"
+            onClicked: { if (root.service) root.service.setRotationPreset("auto") }
+          }
+          Button {
+            width: (parent.width - parent.spacing) / 2
+            height: Style.space(40)
+            text: "Fixed"
+            active: root.tabletRotation !== "auto"
+            onClicked: { if (root.service) root.service.toFixedMode() }
+          }
+        }
+
+        // Fixed direction picker: shown only in fixed mode.
+        Row {
+          id: dirRow
+          width: parent.width
+          visible: root.tabletRotation !== "auto"
+          spacing: Style.spacing.sm
+
+          Repeater {
+            model: ["0°", "90°", "180°", "270°"]
+            delegate: Button {
+              width: (dirRow.width - dirRow.spacing * 3) / 4
+              height: Style.space(40)
+              text: modelData
+              active: root.tabletRotation === String(index)
+              onClicked: { if (root.service) root.service.setRotationPreset(String(index)) }
+            }
           }
         }
       }
