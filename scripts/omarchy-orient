@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""omarchy-orient — IIO accelerometer posture probe (tablet experience).
+
+Reads accel_3d from sysfs (no extra packages needed) and classifies the
+device posture using the iio-sensor-proxy convention for the *dominant* axis:
+
+  normal      screen-facing user, top edge up   (laptop / standing tablet)
+  bottom-up   flipped 180° (typical tablet fold-back)   [g on +Z dominant]
+  right-up    portrait, RIGHT edge up            [g on +X dominant]
+  left-up     portrait, LEFT edge up             [g on -X dominant]
+  unknown     flat / not enough signal
+
+IMPORTANT: sensor mounting (lid vs base) and axis sign conventions differ per
+board, so the label is a *starting point*, not truth. Verify physically once:
+  omarchy-orient --watch        # tilt the device through all 4 postures
+Then note corrections in README Phase 6.
+
+Also prints the raw gravity vector so a calibration table can be derived.
+"""
+
+import json
+import math
+import os
+import sys
+import time
+
+IIO = "/sys/bus/iio/devices/iio:device0"
+AXES = ("x", "y", "z")
+
+
+def read_vector():
+    """Return (x, y, z) gravity vector in m/s² from the IIO accelerometer."""
+    scale = None
+    for cand in (f"{IIO}/in_accel_scale", f"{IIO}/in_accel_scale_available"):
+        if os.path.exists(cand):
+            scale = float(open(cand).read().split()[0])
+            break
+    if scale is None:
+        raise RuntimeError(f"no accel scale at {IIO}/in_accel_scale")
+    v = []
+    for a in AXES:
+        raw = int(open(f"{IIO}/in_accel_{a}_raw").read())
+        v.append(raw * scale)
+    return tuple(v)
+
+
+def classify(g):
+    """Dominant-axis label per iio-sensor-proxy conventions."""
+    dom = max(range(3), key=lambda i: abs(g[i]))
+    val = g[dom]
+    if abs(val) < 4.0:                      # near-flat fallback threshold
+        return "unknown"
+    return ["normal", "right-up", "bottom-up", "left-up"][dom] if val > 0 \
+        else ["bottom-up", "left-up", "normal", "right-up"][dom]
+
+
+def main():
+    args = sys.argv[1:] or ["once"]
+    if args[0] == "once":
+        g = read_vector()
+        mag = math.sqrt(sum(v * v for v in g))
+        print(f"{classify(g)} | g=({g[0]:+.2f},{g[1]:+.2f},{g[2]:+.2f}) m/s² |g|={mag:.2f}")
+    elif args[0] == "--json":
+        g = read_vector()
+        print(json.dumps({"g": list(g), "label": classify(g)}))
+    elif args[0] == "--watch":
+        try:
+            while True:
+                g = read_vector()
+                print(f"\r{classify(g):<10} g=({g[0]:+.2f},{g[1]:+.2f},{g[2]:+.2f})     ",
+                      end="", flush=True)
+                time.sleep(0.2)
+        except KeyboardInterrupt:
+            print("\n(stopped)")
+    else:
+        print(__doc__)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

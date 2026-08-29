@@ -14,7 +14,7 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 | 2 | Native workspace swipe | ✅ edge-swipe verified working (user-tested), `gestures:workspace_swipe_touch=true` |
 | 3 | Input method (Chinese) | ✅ fcitx5 + Rime + Wanxiang installed & deployed (see below) |
 | 4 | Virtual keyboard | 🟡 squeekboard (extra) core path **working**: D-Bus toggle ✓, bottom-edge up-swipe show ✓ (user-tested), `SUPER+U` bind ✓; pending autostart + touch/Chinese input verification |
-| 5–11 | rotation / state / UI / auto-switch | ⏳ pending |
+| 5–11 | rotation / state / UI / auto-switch | ⏳ pending (Phase 5 underway: manual rotation script+binds verified) |
 | 12 | **Hardware full bring-up (esp. camera)** | 🟡 camera **verified via UVC** (RGB MJPG + IR, see `PHASE12-HARDWARE.md`); IPU6 CSI path confirmed dead end. Fingerprint enrolled+live, BT scan verified, audio sinks/sources present. Remaining: `libcamera` install → browser test; user pair/unlock tests |
 
 ## System facts (captured 2026-08-28)
@@ -36,6 +36,9 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 | `~/.config/hypr/hyprland.lua` | appended `require("hypr.tablet-experience")` | `hyprland.lua.bak.1787928342` |
 | `~/.config/hypr/tablet-experience.lua` | NEW — plugin-owned generated config (Phase 2 swipe + Phase 4 `SUPER+U` vk bind) | latest edit 2026-08-29 |
 | `~/.config/hypr/autostart.lua` | added `o.launch_on_start("omarchy-vk daemon")` (Phase 4 persistence) | `autostart.lua.bak.*` |
+| `~/.local/bin/omarchy-rotate` + `scripts/omarchy-rotate` | Phase 5 — rotation helper (transform 0/90/180/270) + OSD | (repo archive) |
+| `~/.local/bin/omarchy-orient` + `scripts/omarchy-orient` | Phase 6 — IIO accel posture probe (sysfs, zero deps) | (repo archive) |
+| `config/hypr/tablet-experience.lua` (this repo) | Phase 5 — archived copy incl. `SUPER+CTRL+0..3` rotation binds | — |
 | `PHASE12-HARDWARE.md` (this repo) | NEW — camera UVC verification + IPU6 dead-end analysis, fingerprint/BT/audio status | — |
 | `~/.config/fcitx5/profile` | added `rime` as 2nd input method | `profile.bak.1787928474` |
 | `~/.local/share/fcitx5/rime/` | NEW — Wanxiang v17.7.1 files | (download from GitHub releases) |
@@ -43,6 +46,22 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 **Packages added (official `extra`, all removable):** fcitx5-rime, librime(+data), noto-fonts-cjk, wqy-microhei, python-pywayland (diagnostic tool — remove later), squeekboard, python-evdev (gesture daemon dep).
 
 ## Current runtime state (2026-08-29)
+
+**Phase 5 — manual rotation (done, pending user touch-check):** `omarchy-rotate`
+(script + OSD, live at `~/.local/bin/`, archived at `scripts/omarchy-rotate`)
+rotates eDP-1 via `hyprctl eval "hl.monitor({...})"` — all 4 transforms
+verified roundtrip. Binds `SUPER+CTRL+0..3` → 0°/90°/180°/270°, added to
+`tablet-experience.lua` (archived at `config/hypr/tablet-experience.lua`),
+config reloaded clean, binds registered. Touch/pen mapping follows the
+monitor automatically (`input:touchdevice:output=Auto`), awaiting physical
+verification.
+
+**Phase 6 — auto-rotation prep (needs 1 sudo install):** IIO accel_3d is live
+(g=(−0.35,−6.61,−8.21) m/s², dominant −z ⇒ `normal` posture). Probe script
+`omarchy-orient` (sysfs only, zero new packages; `--watch` for calibration)
+classifies normal/bottom-up/left-up/right-up. **Pending: `sudo pacman -S
+iio-sensor-proxy`** → standardised D-Bus orientation → wire to transform
+(Phase 7 state machine).
 
 **Hardware (Phase 12):** camera output verified — device is a USB camera bridge
 with two UVC functions: `/dev/video64` RGB (MJPG 2592x1944 max) and
@@ -77,6 +96,9 @@ omarchy-tablet-experience/
 ├── AUDIT.md                ← Phase 0 audit (hardware/software/plugin API)
 ├── DEBUG-TOUCH-BAR.md      ← full record of the top-bar touch investigation
 ├── scripts/
-│   └── omarchy-vk          ← gesture daemon + toggle (archived copy; live at ~/.local/bin/omarchy-vk)
+│   ├── omarchy-vk      ← gesture daemon+toggle (archived; live at ~/.local/bin)
+│   ├── omarchy-rotate  ← Phase 5 rotation helper (0/90/180/270 + OSD)
+│   └── omarchy-orient  ← Phase 6 IIO accel posture probe (--watch to calibrate)
+├── config/hypr/tablet-experience.lua   ← archived copy of the live hypr config
 └── (later) plugin-source/  ← the Quattro plugin (service + bar-widget + panel)
 ```

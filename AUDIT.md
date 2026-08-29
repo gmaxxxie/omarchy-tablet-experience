@@ -195,6 +195,26 @@ WirePlumber (verified); cosmetic RTKit error (no realtime prio).
 `omarchy-vk daemon` via `o.launch_on_start` (backup saved) — live daemon still
 running from earlier terminal; daemon will auto-start next login.
 
+### 2026-08-29 — Phase 5: manual rotation working (script + binds verified)
+
+Runtime rotation confirmed on Hyprland 0.56.2: `hyprctl eval
+'hl.monitor({output="eDP-1", transform=N})'` — all 4 transforms roundtrip
+clean (0→1→2→3→0), zero configerrors. Built `omarchy-rotate` (bash, OSD via
+`omarchy osd`, `OMARCHY_ROTATE_DISPLAY` env override) → live at
+`~/.local/bin/`, archived `scripts/omarchy-rotate`. Binds
+`SUPER+CTRL+0/1/2/3` → 0°/90°/180°/270° in `tablet-experience.lua`
+(archived `config/hypr/tablet-experience.lua`), `hyprctl reload` ok, binds
+registered (verified via `hyprctl binds`). Touch/pen mapping stays `Auto`
+(follows transform natively) — **pending physical user verification** in
+portrait/flipped orientations.
+
+**Phase 6 prep:** IIO accel_3d live (g=(−0.35,−6.61,−8.21), dominant −z ⇒
+`normal`; |g|≈10.55 static bias). Probe `omarchy-orient` (python3, sysfs,
+zero deps; `once`/`--json`/`--watch`) classifies normal/bottom-up/left-up/
+right-up — archived `scripts/omarchy-orient`, live at `~/.local/bin/`. Sensor
+mounting/axis conventions need physical calibration (`--watch`). Wiring into
+auto-rotation = Phase 6/7, pending `sudo pacman -S iio-sensor-proxy`.
+
 Cleared by controlled experiments: `gestures:workspace_swipe_touch` (off → no change), fcitx5 (fully stopped → no change), touch device hardware (raw coords verified correct), fonts/Rime.
 
 Evidence: `hyprctl layers` shows only `omarchy-bar 0 0 1200 30` at top, no overlay; no occlusion. Hyprland 0.56.2 source + Quickshell source review says the bar should be hittable (Quickshell never sets empty input regions). Root cause not found yet.
