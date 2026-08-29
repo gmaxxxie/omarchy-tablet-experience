@@ -24,12 +24,43 @@ import os
 import sys
 import time
 
-IIO = "/sys/bus/iio/devices/iio:device0"
+IIO = None                     # resolved by find_accel() — device numbers shift
 AXES = ("x", "y", "z")
+
+
+def find_accel():
+    """Locate the 3-axis accelerometer IIO device (sysfs).
+
+    Device numbers are unstable across boots (here accel_3d moved from
+    iio:device0 to iio:device1 after renumbering), so discover by name first
+    (accel_3d), then fall back to any device exposing in_accel_*_raw/scale.
+    """
+    base = "/sys/bus/iio/devices"
+    accel_name = {"accel_3d", "accel_3d_0", "accelmountable", "accel_3d_inv", "accel_3d_normal"}
+    for dev in sorted(os.listdir(base)):
+        path = os.path.join(base, dev)
+        name = None
+        try:
+            name = open(os.path.join(path, "name")).read().strip()
+        except OSError:
+            continue
+        if name in accel_name or ("accel" in name and "gyro" not in name):
+            if os.path.exists(f"{path}/in_accel_scale") or os.path.exists(f"{path}/in_accel_x_raw"):
+                return path
+    # fallback: any iio device with the accel raw+scale files
+    for dev in sorted(os.listdir(base)):
+        path = os.path.join(base, dev)
+        if os.path.exists(f"{path}/in_accel_x_raw") and \
+           (os.path.exists(f"{path}/in_accel_scale") or os.path.exists(f"{path}/in_accel_scale_available")):
+            return path
+    raise RuntimeError("no IIO accelerometer device found under " + base)
 
 
 def read_vector():
     """Return (x, y, z) gravity vector in m/s² from the IIO accelerometer."""
+    global IIO
+    if IIO is None:
+        IIO = find_accel()
     scale = None
     for cand in (f"{IIO}/in_accel_scale", f"{IIO}/in_accel_scale_available"):
         if os.path.exists(cand):

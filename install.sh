@@ -10,7 +10,7 @@
 # Arch/Omarchy, and is safe to run from either the dev clone or the plugin
 # directory that `omarchy plugin add` created:
 #
-#   1. helper daemons -> ~/.local/bin/omarchy-{vk,rotate,orient,kbdetect,touch,close,window,bar-probe}
+#   1. helper daemons -> ~/.local/bin/texp-{vk,rotate,orient,kbdetect,touch,close,window,bar-probe}
 #   2. Hyprland hooks  -> touch workspace swipe, SUPER+U (VK), SUPER+SHIFT+U (mode
 #                        toggle), SUPER+SHIFT+R (rotation cycle) in hyprland.lua
 #   3. autostart hooks -> gesture + touch daemons launch on login
@@ -96,6 +96,30 @@ if [ "$VERIFY" -eq 1 ]; then
     ok "plugin enabled in omarchy"
   else
     bad "plugin not enabled — omarchy plugin enable maxt.tablet-experience"
+  fi
+
+  # plugin QML must use the current texp-* helper names, and no second plugin
+  # folder may shadow it: a stale copy (or a leftover backup dir with the same
+  # manifest id) makes the shell serve OLD code — rotation / window-manage /
+  # auto-switch then fail silently (omarchy-kbdetect-spam in the journal).
+  PLUGINS_DIR="$HOME/.config/omarchy/plugins"
+  PLUGIN_DIR="$PLUGINS_DIR/maxt.tablet-experience"
+  if [ -d "$PLUGIN_DIR" ]; then
+    if grep -rEq 'omarchy-(vk|touch|close|window|rotate|orient|kbdetect|bar-probe)' \
+        "$PLUGIN_DIR" 2>/dev/null; then
+      bad "plugin QML still calls omarchy-* helpers — copy Service.qml/BarWidget.qml from the repo"
+    else
+      ok "plugin QML uses texp-* helpers"
+    fi
+    DUPS="$(grep -rl 'maxt.tablet-experience' "$PLUGINS_DIR"/*/manifest.json 2>/dev/null \
+            | grep -v "^$PLUGIN_DIR/manifest.json$" || true)"
+    if [ -n "$DUPS" ]; then
+      bad "duplicate plugin folder shadows the plugin: $(echo "$DUPS" | tr '\n' ' ')— move it out of $PLUGINS_DIR"
+    else
+      ok "no duplicate plugin folder shadows the plugin"
+    fi
+  else
+    bad "plugin dir missing — omarchy plugin add <git-url> --enable"
   fi
 
   # keybinds actually registered in the live Hyprland session

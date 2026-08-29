@@ -66,7 +66,7 @@ Uninstall: `uninstall.sh` (system side) + `omarchy plugin remove maxt.tablet-exp
 | 2 | Native workspace swipe | ✅ edge-swipe verified working (user-tested), `gestures:workspace_swipe_touch=true` |
 | 3 | Input method (Chinese) | ✅ fcitx5 + Rime + Wanxiang deployed + **LTS gram 语言模型已装入** (~400MB, 无 sudo) |
 | 4 | Virtual keyboard | 🟡 squeekboard (extra) core path **working**: D-Bus toggle ✓, bottom-edge up-swipe show ✓ (user-tested), `SUPER+U` bind ✓; pending autostart + touch/Chinese input verification |
-| 5–11 | rotation / state / UI / auto-switch | 🟡 P5 ✅ · P7/8 ✅ · P6/9/10 wired (auto-orient opt-in; kb auto-switch ON by default since v0.5.8) ⏳ activate at next login · **P11 ✅ `texp-touch` multi-touch daemon (synthetics-tested, live, needs 2-finger pass)** |
+| 5–11 | rotation / state / UI / auto-switch | P5 ✅ · P7/8 ✅ · **P6/9/10 live since v0.6.1** (auto-switch ✓; auto-orient ✓ — orientation reads `normal` via sysfs; see 2026-08-29 note) · **P11 ✅ `texp-touch` multi-touch daemon (synthetics-tested, live, needs 2-finger pass)** |
 | 12 | **Hardware full bring-up (esp. camera)** | 🟡 camera **verified via UVC** (RGB MJPG + IR, see `PHASE12-HARDWARE.md`); IPU6 CSI confirmed dead end. libcamera now installed → browser test pending relogin. Fingerprint enrolled+live, BT scan verified, audio sinks/sources present |
 | 13 | **Tablet window manage (v0.5.6: close / move ws / layout + Auto⇄Fixed rotation)** | ✅ live. Always-mounted bar entry: laptop → `Laptop` button (popup = mode/rotation only); tablet → `窗口` button unlocking close ✕ / move-to-workspace grid (1–10) / Dwindle·Scrolling switch (persisted like SUPER+L). Max/min/restore removed. Targeting = window under last touch, visible windows only. **New: texp-touch single-finger tap now FOCUSES the tapped visible window** (Hyprland touch never focuses — Touch.cpp; this mattered in scrolling layout where windows sit off-view). Verified: focus dispatch changes activewindow; move/layout/close re-verified. Notification feedback on move/layout |
 
@@ -130,10 +130,14 @@ below**):
   `laptop|tablet` + `tabletRotation` preset off/0°/180°), idempotent apply
   (OSD + optional rotate on enter-tablet), Charm IPC:
   `omarchy-shell maxt.tablet-experience {getState|getMode|toggle|setMode|setRotation}`
-- **v0.2.0 additions (phase 6/9/10):** `autoOrient` (opt-in; polls
-  `net.hadess.SensorProxy.AccelerometerOrientation` via busctl every 1.5s,
-  applies normal→0°/left-up→90°/bottom-up→180°/right-up→270° silently,
-  tablet-mode only), `autoSwitchMode` (opt-in; USB 17ef:60fe attach/detach
+- **v0.2.0 additions (phase 6/9/10):** `autoOrient` (opt-in; sensor-following
+  rotation — the orientation probe polls `texp-orient --json` (sysfs accel,
+  zero deps) every 1.5s since v0.6.1; iio-sensor-proxy is NOT usable on this
+  board: `AccelerometerOrientation` sticks at "undefined" even with the device
+  detected + tagged, so we classify from sysfs ourselves — verified live:
+  `orientation=normal`), applies normal→0°/left-up→90°/bottom-up→180°/
+  right-up→270° silently, tablet-mode only), `autoSwitchMode` (opt-in; USB
+  17ef:60fe attach/detach
   via `texp-kbdetect` → laptop/tablet), IPC
   `setAutoOrient`/`setAutoSwitch`, extended getState. Boot marker log line on
   activation: `tablet-experience Service LOADED v2`.
@@ -145,7 +149,20 @@ below**):
   6/9/10 methods verified by offline `quickshell -p` load (parses +
   instantiates cleanly).
 
-**PLATFORM FINDING (v0.5): bar-widget QML components are cached like service QML — editing `BarWidget.qml` hot-reloads the plugin but keeps serving the OLD widget; the new code only appears after a full shell restart. `omarchy restart shell` can silently fail to relaunch (killed the shell, nothing came back, exit 0) — recovery: `hyprctl eval 'hl.dispatch(hl.dsp.exec_cmd("omarchy-launch-shell"))'`. Verify with `omarchy-shell shell debugBarGeometry` (widget row `slotVis/itemVis` must be true) and the `MAXT-WIDGET-ONLINE` probe in the journal.
+**PLATFORM FINDING (v0.6.1):** plugin QML is read from the DISCOVERED plugin
+folder at shell start — the `~/.cache/quickshell/qmlcache` is only a compile
+cache and rebuilds from whatever source the plugin manager resolves. The real
+trap: a SECOND folder under `~/.config/omarchy/plugins/` carrying a
+`manifest.json` with the same id (`maxt.tablet-experience`) shadows/duplicates
+the plugin and the shell serves ITS (stale) QML — rotation / window-manage /
+auto-switch then call the old `omarchy-*` helpers and fail loudly in the
+journal (`Process failed to start ... omarchy-kbdetect`) while the bar/shell
+looks fine. Never keep backups or scratch copies with that manifest.json inside
+the plugins dir (move them out, e.g. `~/.local/state/`). `install.sh --verify`
+now checks for both stale `omarchy-*` refs in the plugin QML and duplicate
+plugin folders.
+
+**PLATFORM FINDING (v0.5): bar-widget QML components are cached like service QML — editing `BarWidget.qml` hot-reloads the plugin but keeps serving the OLD widget; the new code only appears after a full shell restart. `omarchy restart shell` can silently fail to relaunch (killed the shell, nothing came back, exit 0) — recovery: `hyprctl eval 'hl.dispatch(hl.dsp.exec_cmd("omarchy-launch-shell"))'` (actually cleaner: kill quickshell and let the `omarchy-launch-shell` supervisor relaunch it). Verify with `omarchy-shell shell debugBarGeometry` (widget row `slotVis/itemVis` must be true) and the `MAXT-WIDGET-ONLINE` probe in the journal.
 
 **PLATFORM FINDING (recorded):** Omarchy service-plugin QML hot-reload does
 NOT swap service code — the component is cached per URL; disable→enable and

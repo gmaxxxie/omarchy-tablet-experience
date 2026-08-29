@@ -8,9 +8,11 @@ import Quickshell.Io
 //   mode             "laptop" | "tablet"
 //   tabletRotation   rotation preset applied when ENTERING tablet mode:
 //                    "off" | "0" (landscape) | "2" (180° fold)
-//   autoOrient       opt-in: follow iio-sensor-proxy orientation while in
-//                    tablet mode (normal→0°, left-up→90°, bottom-up→180°,
-//                    right-up→270°); overrides the manual/preset rotation
+//   autoOrient       opt-in: follow device posture while in tablet mode
+//                    (normal→0°, left-up→90°, bottom-up→180°, right-up→270°,
+//                    classified from the IIO accel via texp-orient — the
+//                    iio-sensor-proxy D-Bus property stays "undefined" on
+//                    this board); overrides the manual/preset rotation
 //   autoSwitchMode   keyboard USB attach/detach (17ef:60fe) drives the mode
 //                    automatically (attached→laptop, detached→tablet). ON by
 //                    default; disable with IPC setAutoSwitch off
@@ -138,8 +140,8 @@ Item {
     }
   }
 
-  // Phase 6 — orientation → transform, only when enabled AND in tablet mode.
-  // iio-sensor-proxy convention:
+  // Phase 6 — posture via texp-orient (sysfs accel, zero deps). Same
+  // orientation convention as iio-sensor-proxy:
   //   normal → 0 · left-up → 1 (90°) · bottom-up → 2 (180°) · right-up → 3 (270°)
   // (needs one physical calibration pass, see texp-orient --watch)
   function orientationTransform(o) {
@@ -204,15 +206,15 @@ Item {
 
   Process {
     id: orientationProbe
-    command: ["busctl", "--system", "get-property",
-              "net.hadess.SensorProxy", "/net/hadess/SensorProxy",
-              "net.hadess.SensorProxy", "AccelerometerOrientation"]
+    command: ["texp-orient", "--json"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var m = /\[|'([a-z-]+)'|s "([a-z-]+)"/.exec(text)
-        var o = m ? (m[1] || m[2] || "unknown") : "unknown"
-        if (o === "undefined") o = "unknown"
+        var o = "unknown"
+        try {
+          var d = JSON.parse(text || "")
+          if (d && typeof d.label === "string") o = d.label
+        } catch (e) {}
         if (o !== root.orientation) {
           root.orientation = o
           root.applyOrientation()
