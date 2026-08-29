@@ -1,4 +1,16 @@
+# Logs / backups
 *.log
 *.bak*
+
+# Python
 __pycache__/
 *.pyc
+
+# Local hardware verification artifacts (camera captures, touch traces, IR stats)
+verify/
+
+# Editors / OS noise
+.vscode/
+.idea/
+*.swp
+.DS_Store
