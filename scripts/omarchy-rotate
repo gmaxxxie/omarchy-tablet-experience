@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# omarchy-rotate — rotate the internal display (ThinkPad X12 tablet experience).
+# omarchy-rotate — rotate the primary display (detachable tablet experience).
 #
 # Usage: omarchy-rotate [-s] <0|1|2|3|next|prev>
 #   -s   silent: skip the OSD notification (used by auto-orientation)
 #   0 = landscape  1 = portrait 90°  2 = flipped 180°  3 = portrait 270°
 #   next            cycle to the following orientation (0°→90°→180°→270°→0°)
 #   prev            cycle backwards
+#
+# Display: defaults to the FIRST Hyprland monitor (usually the internal
+# panel); override with OMARCHY_ROTATE_DISPLAY.
 #
 # Uses the Hyprland 0.56 Lua runtime API (hyprctl eval).
 #
@@ -17,7 +20,8 @@
 # matrix when resolving touch points to logical coords.
 set -eu
 
-DISP="${OMARCHY_ROTATE_DISPLAY:-eDP-1}"
+DISP="${OMARCHY_ROTATE_DISPLAY:-$(hyprctl monitors -j 2>/dev/null | grep -o '"name": *"[^"]*"' | head -1 | cut -d'"' -f4 || true)}"
+[ -n "$DISP" ] || DISP="eDP-1"
 SILENT=0
 while [ "$#" -gt 0 ]; do
   case "$1" in

@@ -27,7 +27,8 @@ import time
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-TOUCH_NAME_KEYS = ("wacom", "finger")      # match device by name substring
+TOUCH_NAME_KEYS = tuple(os.environ.get(
+    "OMARCHY_TOUCH_NAME", "wacom finger").split())      # match device by name substring
 BOTTOM_RATIO = 0.88        # up-swipe must START in the bottom 12% of the screen
 MOVE_THRESHOLD = 150       # upward travel (raw device units) to count
 DOWN_ZONE_RATIO = 0.68     # down-swipe allowed when keyboard is visible AND

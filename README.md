@@ -2,6 +2,32 @@
 
 Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 + Hyprland 0.56.2 for the **Lenovo ThinkPad X12 Detachable Gen 1**.
 
+## One-click install (marketplace format)
+
+The repository root IS the plugin root (manifest at root, per the [Omarchy plugin conventions](https://omarchyplugins.com/develop.html)):
+
+```sh
+# plugin (QML service + bar button) — standard Omarchy git install:
+omarchy plugin add https://github.com/gmaxxxie/omarchy-tablet-experience.git --enable
+
+# system side (helper daemons, Hyprland hooks, packages) — from the cloned plugin dir:
+~/.config/omarchy/plugins/maxt.tablet-experience/install.sh
+```
+
+`install.sh` copies `scripts/` to `~/.local/bin`, wires `hyprland.lua` (touch swipe + `SUPER+U` / `SUPER+SHIFT+U` / `SUPER+SHIFT+R`) and autostart hooks, and installs required packages (squeekboard, iio-sensor-proxy, python-evdev). Every modified file gets a `*.bak.<timestamp>`; `uninstall.sh` reverses everything (only touching files that byte-match the install). Preview with `./install.sh --dry-run --no-packages`.
+
+Options: `--no-packages` · `--with-ime` (fcitx5-rime + CJK fonts) · `--with-camera` (libcamera) · `--dry-run`.
+
+**Hardware defaults target the ThinkPad X12** (folio keyboard USB `17ef:60fe`, Wacom touchscreen), all overridable via env vars:
+
+| Var | Meaning | Default |
+|---|---|---|
+| `OMARCHY_ROTATE_DISPLAY` | display to rotate | first Hyprland monitor |
+| `OMARCHY_KB_VENDOR` / `OMARCHY_KB_PRODUCT` | detachable-keyboard USB id | `17ef` / `60fe` |
+| `OMARCHY_TOUCH_NAME` | space-separated substrings matching the touch device name | `wacom finger` |
+
+Uninstall: `uninstall.sh` (system side) + `omarchy plugin remove maxt.tablet-experience`.
+
 ## Status board
 
 | Phase | Feature | Status |
@@ -148,20 +174,23 @@ relogin/restart so WirePlumber picks the UVC device up.**
 ## Repository layout
 
 ```
-omarchy-tablet-experience/
-├── README.md               ← you are here
-├── AUDIT.md                ← Phase 0 audit (hardware/software/plugin API)
-├── DEBUG-TOUCH-BAR.md      ← full record of the top-bar touch investigation
-├── scripts/
-│   ├── omarchy-vk      ← gesture daemon+toggle (archived; live at ~/.local/bin)
-│   ├── omarchy-rotate  ← Phase 5/6 rotation helper (-s silent for auto-orient; v0.3 syncs touch-device transform)
-│   ├── omarchy-orient  ← Phase 6 IIO accel posture probe (--watch to calibrate)
-│   ├── omarchy-kbdetect ← Phase 9 folio-keyboard USB presence (sysfs, no udev rules)
-│   ├── omarchy-touch  ← Phase 11 multi-touch gestures + last-touch tracking (tap2=close, tap3=VK, no grab)
-│   ├── omarchy-close  ← close panels/overlays, else the window under the last touch (touch Esc)
-│   └── omarchy-window  ← Phase 13 tablet actions (resolve|close|move <ws>|layout <mode>; visible targets only)
-├── config/hypr/tablet-experience.lua   ← archived copy of the live hypr config
-├── plugin-source/
-│   └── maxt.tablet-experience/  ← Phase 7–10 Quattro plugin (Service + BarWidget + manifest)
-└── (later) panel extras, udev watcher, auto-switch
+omarchy-tablet-experience/            ← repo root = plugin root (marketplace contract)
+├── manifest.json                  ← plugin manifest (service + bar-widget)
+├── Service.qml                    ← Laptop/Tablet state machine + IPC
+├── BarWidget.qml                  ← always-mounted bar button + popup
+├── install.sh / uninstall.sh      ← one-command setup/teardown (reversible)
+├── scripts/                       ← helper daemons (auto-installed to ~/.local/bin)
+│   ├── omarchy-vk             ← VK toggle + bottom-edge swipe daemon
+│   ├── omarchy-touch          ← multi-touch gestures + last-touch tracking
+│   ├── omarchy-close          ← close panels/overlays/touched window (touch Esc)
+│   ├── omarchy-window         ← tablet actions (close/move/layout; visible targets only)
+│   ├── omarchy-rotate         ← rotation helper (+ touch-device transform sync)
+│   ├── omarchy-orient         ← IIO accel posture probe (--watch to calibrate)
+│   ├── omarchy-kbdetect       ← folio-keyboard USB presence (sysfs, no udev)
+│   └── omarchy-bar-probe      ← uinput diagnostic (bar touch-hit verification)
+├── config/hypr/tablet-experience.lua  ← Hyprland binds/swipe (installed + hooked)
+├── AUDIT.md                      ← Phase 0 audit + progress log
+├── DEBUG-TOUCH-BAR.md            ← top-bar touch investigation record
+├── PHASE12-HARDWARE.md           ← hardware bring-up (camera UVC, IPU6 dead end)
+└── LICENSE
 ```

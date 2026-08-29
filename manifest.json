@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "maxt.tablet-experience",
   "name": "Tablet Experience",
-  "version": "0.3.0",
+  "version": "0.6.0",
   "author": "maxt",
   "license": "MIT",
-  "description": "Laptop/Tablet state machine for the ThinkPad X12 (rotation + virtual keyboard helpers + window-manage popup)",
+  "description": "Laptop/Tablet mode for detachable 2-in-1s: sensor-following rotation, virtual-keyboard gestures, keyboard auto mode-switch, and a tablet window-manage popup (close / move-to-workspace / layout).",
   "kinds": [
     "service",
     "bar-widget"
@@ -16,7 +16,7 @@
   },
   "barWidget": {
     "displayName": "Tablet mode",
-    "description": "Window manage (close/minimize/maximize/restore) + Laptop/Tablet mode toggle",
+    "description": "Laptop/Tablet toggle + rotation + tablet window manage",
     "category": "System",
     "allowMultiple": false
   }

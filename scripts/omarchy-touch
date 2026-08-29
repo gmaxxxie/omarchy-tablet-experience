@@ -38,7 +38,8 @@ import time
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-TOUCH_NAME_KEYS = ("wacom", "finger")
+TOUCH_NAME_KEYS = tuple(os.environ.get(
+    "OMARCHY_TOUCH_NAME", "wacom finger").split())
 TWO_FINGER_GAP_MS = 700          # 2nd finger must land within this of 1st
 TAP_MAX_MOVE = 220               # raw units a finger may wander and still be a tap
 TAP_MAX_SPAN_MS = 1500           # all fingers up within this to count as tap

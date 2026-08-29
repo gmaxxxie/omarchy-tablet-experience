@@ -241,7 +241,8 @@ auto-rotation = Phase 6/7, pending `sudo pacman -S iio-sensor-proxy`.
 ### 2026-08-29 — Phases 7+8: Laptop/Tablet state machine + Omarchy plugin
 
 Built plugin `maxt.tablet-experience` (`~/.config/omarchy/plugins/`,
-archived `plugin-source/`): `service` + `bar-widget` kinds.
+source at the repo root, `plugin-source/` was retired when the repo became
+the installable plugin root): `service` + `bar-widget` kinds.
 
 - **Service.qml** — `PersistentProperties { reloadableId:
   "maxt-tablet-experience" }` holding `mode` (laptop|tablet) and
