@@ -195,9 +195,9 @@ Panel {
           Button {
             width: (parent.width - parent.spacing * 2) / 3
             height: Style.space(40)
-            text: "Auto"
+            text: "\uF14E"        // fa-compass — sensor-following "Auto"
             active: root.tabletRotation === "auto"
-            tooltipText: "Sensor-following rotation"
+            tooltipText: "Auto-rotate: sensor-following (on/off)"
             onClicked: { if (root.service) root.service.setRotationPreset("auto") }
           }
           Button {
@@ -210,7 +210,7 @@ Panel {
           Button {
             width: (parent.width - parent.spacing * 2) / 3
             height: Style.space(40)
-            text: "\uF2F1"        // fa-rotate-right → content 90° clockwise
+            text: "\uF2F9"        // fa-rotate-right → content 90° clockwise (NOT fa-rotate U+F2F1 — that one renders as the generic refresh circle)
             tooltipText: "Rotate right (90° clockwise)"
             onClicked: { if (root.service) root.service.rotateRight() }
           }
