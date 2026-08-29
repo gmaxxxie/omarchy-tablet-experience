@@ -94,6 +94,8 @@ below**):
   6/9/10 methods verified by offline `quickshell -p` load (parses +
   instantiates cleanly).
 
+**PLATFORM FINDING (v0.5): bar-widget QML components are cached like service QML — editing `BarWidget.qml` hot-reloads the plugin but keeps serving the OLD widget; the new code only appears after a full shell restart. `omarchy restart shell` can silently fail to relaunch (killed the shell, nothing came back, exit 0) — recovery: `hyprctl eval 'hl.dispatch(hl.dsp.exec_cmd("omarchy-launch-shell"))'`. Verify with `omarchy-shell shell debugBarGeometry` (widget row `slotVis/itemVis` must be true) and the `MAXT-WIDGET-ONLINE` probe in the journal.
+
 **PLATFORM FINDING (recorded):** Omarchy service-plugin QML hot-reload does
 NOT swap service code — the component is cached per URL; disable→enable and
 `shell rescanPlugins` keep serving the ORIGINAL instance (verified: new IPC
