@@ -49,7 +49,8 @@ Item {
     id: persisted
     reloadableId: "maxt-tablet-experience"
     property string mode: "laptop"
-    property string tabletRotation: "off"   // off(initial) | "0" | "1" | "2" | "3"
+    // off(initial) | auto(sensor) | "0" | "1" | "2" | "3"
+    property string tabletRotation: "off"
     property bool autoOrient: false
     property bool autoSwitchMode: false
   }
@@ -68,30 +69,37 @@ Item {
   }
 
   function cycleRotationPreset() {
-    // off (initial) -> 0° -> 90° -> 180° -> 270° -> off
-    var ring = ["off", "0", "1", "2", "3"]
+    // off (initial) -> auto (sensor) -> 0° -> 90° -> 180° -> 270° -> off
+    var ring = ["off", "auto", "0", "1", "2", "3"]
     var idx = ring.indexOf(persisted.tabletRotation)
     setRotationPreset(ring[(idx + 1) % ring.length])
   }
 
-  // The rotation a preset means: "off" = back to the initial orientation.
+  // The rotation a preset means: "off" = back to the initial orientation;
+  // "auto" is handled by the sensor, no direct rotate.
   function rotationTarget(value) {
     return value === "off" ? "0" : value
   }
 
   function setRotationPreset(value) {
-    if (["off", "0", "1", "2", "3"].indexOf(value) === -1) return
+    if (["off", "auto", "0", "1", "2", "3"].indexOf(value) === -1) return
     persisted.tabletRotation = value
+    // "auto" switches on sensor following; any fixed angle or off turns it
+    // back off so the screen stays where the user put it.
+    persisted.autoOrient = (value === "auto")
     osd("rotate-cw", "Rotation: " + rotationLabel(value))
-    // In tablet mode apply immediately (auto-orient hands this to the
-    // sensor instead); entering tablet mode re-applies it via applyNext.
-    if (isTabletMode && !persisted.autoOrient && !rotateProcess.running) {
+    if (!isTabletMode) return
+    if (persisted.autoOrient) {
+      root.appliedFor = ""
+      root.pollOrientation()   // read the sensor and apply right now
+    } else if (!rotateProcess.running) {
       rotateProcess.command = ["omarchy-rotate", rotationTarget(value)]
       rotateProcess.running = true
     }
   }
 
   function rotationLabel(value) {
+    if (value === "auto") return "auto (sensor)"
     if (value === "0") return "landscape 0°"
     if (value === "1") return "portrait 90°"
     if (value === "2") return "flipped 180°"
@@ -244,13 +252,15 @@ Item {
 
     function setAutoOrient(value: string): string {
       var on = String(value || "").toLowerCase()
-      persisted.autoOrient = on === "on" || on === "true" || on === "1" || on === "yes"
+      var enable = on === "on" || on === "true" || on === "1" || on === "yes"
+      persisted.autoOrient = enable
+      // Keep the rotation preset label consistent with the sensor state.
+      if (enable && root.tabletRotation !== "auto") persisted.tabletRotation = "auto"
+      else if (!enable && root.tabletRotation === "auto") persisted.tabletRotation = "off"
       root.appliedFor = ""
-      if (!persisted.autoOrient && isTabletMode) {
-        // returning to manual control: leave the current transform alone
-      }
-      osd("rotate-cw", "Auto-orientation: " + (persisted.autoOrient ? "on (tablet only)" : "off"))
-      return persisted.autoOrient ? "on" : "off"
+      osd("rotate-cw", "Auto-orientation: " + (enable ? "on (sensor)" : "off"))
+      if (enable && isTabletMode) root.pollOrientation()
+      return enable ? "on" : "off"
     }
 
     function setAutoSwitch(value: string): string {
