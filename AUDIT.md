@@ -308,6 +308,29 @@ archived `plugin-source/`): `service` + `bar-widget` kinds.
   → 4 nodes. UVC RGB/IR nodes (64–67) untouched — recaptured 1280x720 MJPG
   frames fine. Blacklist persists across boots; the isys nodes stay gone.
 
+### 2026-08-29 — Phase 11: multi-touch gestures (`omarchy-touch`)
+
+Protocol audit: Wacom HID 525D Finger declares `ABS_MT_SLOT` max=9 (10
+contacts) but never emits SLOT events (confirmed from capabilities; the
+omarchy-vk quirk note). Contacts are attributed packet-style — the newest
+TID owns the following X/Y — exact single-finger, approximate concurrent.
+hyprpm route checked and skipped: no gesture plugin for Hyprland 0.56.2;
+third-party daemons remain out as exercise deps (our own python-evdev
+daemon is the established pattern).
+
+Built `scripts/omarchy-touch` (live at `~/.local/bin/omarchy-touch`,
+audostarted): passive (NO grab), gestures only drive CLI/hyprctl:
+`tap2 = omarchy-vk toggle`, `swipe-left/right = workspace +1/-1`,
+`swipe-down = omarchy menu root`; cooldown 1.2s; tunables at top. Classifier
+unit-tested with 10 synthetic cases (all PASS, incl. direction semantics,
+tap tolerance, single-finger/hold-time/incomplete-coord rejection). Daemon
+launched live (single instance verified) and added to `autostart.lua`.
+**Pending: physical two-finger validation** — two 25–40s capture windows
+got zero touches (nobody at the panel); the packaging/parse model is
+confident but concurrent-contact accuracy needs one real pass (single
+`OMARCHY_TOUCH_DEBUG=1` run while touching two fingers). If the panel
+cannot report two contacts simultaneously, fall back to tap-only.
+
 Cleared by controlled experiments: `gestures:workspace_swipe_touch` (off → no change), fcitx5 (fully stopped → no change), touch device hardware (raw coords verified correct), fonts/Rime.
 
 Evidence: `hyprctl layers` shows only `omarchy-bar 0 0 1200 30` at top, no overlay; no occlusion. Hyprland 0.56.2 source + Quickshell source review says the bar should be hittable (Quickshell never sets empty input regions). Root cause not found yet.

@@ -14,7 +14,7 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 | 2 | Native workspace swipe | ✅ edge-swipe verified working (user-tested), `gestures:workspace_swipe_touch=true` |
 | 3 | Input method (Chinese) | ✅ fcitx5 + Rime + Wanxiang deployed + **LTS gram 语言模型已装入** (~400MB, 无 sudo) |
 | 4 | Virtual keyboard | 🟡 squeekboard (extra) core path **working**: D-Bus toggle ✓, bottom-edge up-swipe show ✓ (user-tested), `SUPER+U` bind ✓; pending autostart + touch/Chinese input verification |
-| 5–11 | rotation / state / UI / auto-switch | 🟡 P5 ✅ · P7/8 ✅ · P6/9/10 wired on disk (auto-orient + kb watcher + auto-switch, opt-in) ⏳ activate at next login |
+| 5–11 | rotation / state / UI / auto-switch | 🟡 P5 ✅ · P7/8 ✅ · P6/9/10 wired on disk (auto-orient + kb watcher + auto-switch, opt-in) ⏳ activate at next login · **P11 ✅ `omarchy-touch` multi-touch daemon (synthetics-tested, live, needs 2-finger pass)** |
 | 12 | **Hardware full bring-up (esp. camera)** | 🟡 camera **verified via UVC** (RGB MJPG + IR, see `PHASE12-HARDWARE.md`); IPU6 CSI confirmed dead end. libcamera now installed → browser test pending relogin. Fingerprint enrolled+live, BT scan verified, audio sinks/sources present |
 
 ## System facts (captured 2026-08-28)
@@ -94,6 +94,19 @@ plugin code applies only on a full omarchy-shell restart (next login).
 `omarchy-shell` CLI itself is unaffected. This also means: keep the plugin
 stable between logins; verify changes after a relogin.
 
+**Phase 11 — multi-touch gestures (`omarchy-touch`, live, needs your 2-finger pass):**
+passive evdev daemon (no grab) on the Wacom finger device; gestures only
+run CLI/hyprctl (never synthesise input): **2-finger tap = VK toggle ·
+2-finger swipe LEFT/RIGHT = workspace +1/-1 · 2-finger swipe DOWN = omarchy
+menu**. hyprpm route considered and skipped (no gesture plugin for
+Hyprland 0.56.2; external daemons as MVP dep rejected). Protocol finding:
+panel declares 10 MT slots but the driver never emits `ABS_MT_SLOT`
+→ contacts attributed packet-style (newest TID owns X/Y), exact for single
+finger, approximate for concurrent contacts — thresholds tuned for that.
+Classifier verified with 10 synthetic cases (all PASS); daemon running now
+and autostarted (`autostart.lua`). **A physical two-finger pass is
+pending** (my two live capture windows got no touches) — see Next actions.
+
 **Hardware (Phase 12):** camera output verified — device is a USB camera bridge
 with two UVC functions: `/dev/video64` RGB (MJPG 2592x1944 max) and
 `/dev/video66` IR (GREY 640x480); real frames captured (`verify/cam-rgb-1280x720.jpg`;
@@ -128,8 +141,8 @@ frames OK).
 2. **Camera:** webcamtests.com in Chromium (libcamera now present after relogin).
 3. **squeekboard typing + Rime** (`nihao` → candidates) — Phase 4 verification.
 4. **User device tests:** fingerprint unlock; BT pair; speaker/mic.
-5. **Optional:** `gst-plugins-good` for gst pipelines; blacklist `intel-ipu6` modules to drop 64 junk /dev/video nodes *(both need one sudo line — see below)*; ~~download Wanxiang LTS gram~~ ✅ **done 2026-08-29 (400MB, no sudo)**.
-6. Later: 11 gestures, plugin polish (OSD mode glyphs, panel), auto-switch tuning.
+5. **Optional:** ~~`gst-plugins-good`~~ ✅; ~~ipu6 blacklist~~ ✅ (68→4 video nodes); ~~Wanxiang LTS gram~~ ✅ — all done 2026-08-29.
+6. Later: **Phase 11 two-finger validation** (no login needed, daemon already live): put two fingers together on screen → tap = VK; swipe left/right = workspace; swipe down = menu. If the panel drops concurrent contacts (packet-style attribution sees one), I'll re-tune or fall back to a 2-finger-tap-only mode.
 
 ## Repository layout
 
@@ -142,7 +155,8 @@ omarchy-tablet-experience/
 │   ├── omarchy-vk      ← gesture daemon+toggle (archived; live at ~/.local/bin)
 │   ├── omarchy-rotate  ← Phase 5/6 rotation helper (-s silent for auto-orient)
 │   ├── omarchy-orient  ← Phase 6 IIO accel posture probe (--watch to calibrate)
-│   └── omarchy-kbdetect ← Phase 9 folio-keyboard USB presence (sysfs, no udev rules)
+│   ├── omarchy-kbdetect ← Phase 9 folio-keyboard USB presence (sysfs, no udev rules)
+│   └── omarchy-touch  ← Phase 11 multi-touch gestures (2-finger tap/swipe, no grab)
 ├── config/hypr/tablet-experience.lua   ← archived copy of the live hypr config
 ├── plugin-source/
 │   └── maxt.tablet-experience/  ← Phase 7–10 Quattro plugin (Service + BarWidget + manifest)
