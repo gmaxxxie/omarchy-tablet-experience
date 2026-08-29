@@ -1,4 +1,4 @@
-# project files
 *.log
 *.bak*
-/tmp/
+__pycache__/
+*.pyc
