@@ -127,8 +127,10 @@ def daemon():
          f"up needs start>={bottom_y}, down zone>={down_zone}")
 
     # Track per touch-id: [start_y, fired_this_touch].
-    # This device reports TRACKING_ID without SLOT events, so touch-id
-    # doubles as the slot key.
+    # Note: single-touch streams are slot-less (bare TRACKING_ID/X/Y);
+    # multi-touch streams DO carry ABS_MT_SLOT (see omarchy-touch + AUDIT
+    # Phase 11). This daemon only drives single-finger gestures, so
+    # touch-id attribution is sufficient here.
     touches = {}
     last_action = 0.0
 

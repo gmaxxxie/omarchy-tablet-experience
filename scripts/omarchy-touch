@@ -12,18 +12,12 @@ cannot fight Hyprland's own handling:
   2-finger swipe RIGHT  -> workspace -1           (previous workspace)
   2-finger swipe DOWN   -> omarchy menu (root)    (app menu)
 
-`omarchy-close` is the touch counterpart of Esc/close: it hides every open
-omarchy panel/overlay, or closes the focused app window when none are open —
-fixing the keyboard-detached "unclosable omarchy windows" problem.
-
-Protocol note: this panel reports ABS_MT_TRACKING_ID **without** ABS_MT_SLOT
-(10 contacts declared on the slot axis but the driver never sends SLOT
-events), so contacts are attributed packet-style — the most recent TID owns
-the following X/Y until a new TID appears. Single-contact attribution is
-exact; dual-contact is approximate by design. Gesture thresholds are tuned
-for that model. 2-finger work was sanity-tested with synthetic events; live
-multitouch reporting on this panel still needs a physical two-finger pass
-(see README/AUDIT).
+Protocol (verified by live capture 2026-08-29): the panel reports true
+multi-touch; the stream carries ABS_MT_SLOT (S0/S1/S2, up to 3 contacts)
+with per-slot coordinates, `S<n> T<id>` for down, `S<n> T-1` for up (some
+frames drop the S prefix — those use the last seen slot). Contacts are
+therefore keyed by SLOT. (The earlier "no SLOT events" note in omarchy-vk
+was disproven by this capture; omarchy-vk was updated too.)
 
 Subcommands: daemon | help
 Debug: OMARCHY_TOUCH_DEBUG=1 omarchy-touch daemon
@@ -40,7 +34,7 @@ import time
 TOUCH_NAME_KEYS = ("wacom", "finger")
 TWO_FINGER_GAP_MS = 700          # 2nd finger must land within this of 1st
 TAP_MAX_MOVE = 220               # raw units a finger may wander and still be a tap
-TAP_MAX_SPAN_MS = 1500            # both fingers up within this to count as tap
+TAP_MAX_SPAN_MS = 1500           # all fingers up within this to count as tap
 SWIPE_THRESHOLD = 1250           # raw units of travel for a 2-finger swipe
 COOLDOWN = 1.2                   # seconds between daemon actions
 
@@ -57,6 +51,126 @@ def run(cmd):
         subprocess.run(cmd, capture_output=True)
     except FileNotFoundError:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Slot-keyed contact tracker. A slot holds contact geometry for the current
+# gesture; `active` marks a contact that is currently down. On lift the
+# geometry is KEPT until the whole gesture resolves (all slots inactive).
+# State per slot: [start_t, start_x, start_y, last_x, last_y, active]
+# ---------------------------------------------------------------------------
+class Tracker:
+    def __init__(self):
+        self.slots = {}
+        self.slot = None
+
+    def on_slot(self, s):
+        self.slot = s
+
+    def on_tid(self, tid):
+        if self.slot is None:
+            return
+        if tid >= 0:
+            st = self.slots.setdefault(self.slot,
+                [time.monotonic(), None, None, None, None, True])
+            st[0] = time.monotonic()
+            st[5] = True
+        else:
+            st = self.slots.get(self.slot)
+            if st is not None:
+                st[5] = False
+
+    def on_x(self, v):
+        st = self.slots.get(self.slot)
+        if st is None:
+            return
+        if st[1] is None:
+            st[1] = v
+        st[3] = v
+
+    def on_y(self, v):
+        st = self.slots.get(self.slot)
+        if st is None:
+            return
+        if st[2] is None:
+            st[2] = v
+        st[4] = v
+
+    def any_active(self):
+        return any(st[5] for st in self.slots.values())
+
+    def snapshot(self):
+        """Valid contacts of the just-finished gesture (with starts)."""
+        return [st for st in self.slots.values()
+                if st[1] is not None and st[2] is not None]
+
+    def reset(self):
+        self.slots.clear()
+        # Bare events (single-contact streams omit the S prefix entirely, and
+        # mixed frames tag only the 2nd/3rd contact) inherit the last seen
+        # slot; a gesture starting right after a reset should bind the first
+        # bare TID to slot 0, which is what the panel actually uses and the
+        # safest continuation of the observed stream.
+        self.slot = 0
+
+
+# ---------------------------------------------------------------------------
+# Classification
+# ---------------------------------------------------------------------------
+def classify(cls, first_touch_t, now):
+    if first_touch_t is None:
+        return None
+    if (now - first_touch_t) * 1000 > TAP_MAX_SPAN_MS + TWO_FINGER_GAP_MS:
+        return None
+    if len(cls) < 2:
+        return None
+    moved = max(max(abs(t[3] - t[1]), abs(t[4] - t[2])) for t in cls)
+    if moved <= TAP_MAX_MOVE:
+        return "tap3" if len(cls) >= 3 else "tap2"
+    dx = sum(t[3] - t[1] for t in cls)
+    dy = sum(t[4] - t[2] for t in cls)
+    if abs(dx) >= abs(dy) and abs(dx) >= SWIPE_THRESHOLD:
+        return "swipe-right" if dx > 0 else "swipe-left"
+    if dy >= SWIPE_THRESHOLD:
+        return "swipe-down"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Event pump: shared by the live daemon and the replay test.
+# events: iterable of (code, value) for EV_ABS codes.
+# ---------------------------------------------------------------------------
+def process_events(events, dbg=None):
+    tr = Tracker()
+    first_touch_t = None
+    last_action = 0.0
+    actions = []
+
+    for code, value in events:
+        if code == 0x39:                       # ABS_MT_SLOT
+            tr.on_slot(value)
+        elif code == 0x3a:                     # ABS_MT_TRACKING_ID
+            if value >= 0:
+                tr.on_tid(value)
+                if first_touch_t is None:
+                    first_touch_t = time.monotonic()
+            else:
+                tr.on_tid(value)
+                if not tr.any_active():
+                    now = time.monotonic()
+                    action = classify(tr.snapshot(), first_touch_t, now)
+                    if action and now - last_action >= COOLDOWN:
+                        last_action = now
+                        actions.append(action)
+                        if dbg:
+                            dbg(action)
+                    tr.reset()
+                    first_touch_t = None
+        elif code == 0x35:                     # ABS_MT_POSITION_X
+            tr.on_x(value)
+        elif code == 0x36:                     # ABS_MT_POSITION_Y
+            tr.on_y(value)
+    return actions
 
 
 # ---------------------------------------------------------------------------
@@ -77,67 +191,6 @@ def find_touch_device():
     return matches[-1]
 
 
-# ---------------------------------------------------------------------------
-# Contact tracker — packet-style attribution (see module docstring).
-# Each contact: [start_t, start_x, start_y, last_x, last_y]
-# ---------------------------------------------------------------------------
-class Tracker:
-    def __init__(self):
-        self.touches = {}
-        self.newest = None
-
-    def on_tid(self, tid):
-        if tid >= 0:
-            self.touches[tid] = [time.monotonic(), None, None, None, None]
-            self.newest = tid
-        else:
-            self.touches.pop(tid, None)
-            if self.newest == tid:
-                self.newest = max(self.touches.keys(), default=None)
-
-    def on_x(self, v):
-        t = self.touches.get(self.newest)
-        if t is None:
-            return
-        if t[1] is None:
-            t[1] = v
-        t[3] = v
-
-    def on_y(self, v):
-        t = self.touches.get(self.newest)
-        if t is None:
-            return
-        if t[2] is None:
-            t[2] = v
-        t[4] = v
-
-
-def classify(tr, first_touch_t, now):
-    """Classify a just-finished gesture from tracker state. Returns action or None."""
-    if first_touch_t is None:
-        return None
-    if (now - first_touch_t) * 1000 > TAP_MAX_SPAN_MS + TWO_FINGER_GAP_MS:
-        return None  # held too long to be a tap/swipe combo we track
-    contacts = list(tr.touches.values())
-    if len(contacts) < 2:
-        return None
-    # rely on contacts that have real start coords
-    valid = [t for t in contacts if t[1] is not None and t[2] is not None]
-    if len(valid) < 2:
-        return None
-    moved = max(max(abs(t[3] - t[1]) if t[3] is not None else 0,
-                    abs(t[4] - t[2]) if t[4] is not None else 0) for t in valid)
-    if moved <= TAP_MAX_MOVE:
-        return "tap3" if len(valid) >= 3 else "tap2"
-    dx = sum(t[3] - t[1] for t in valid)
-    dy = sum(t[4] - t[2] for t in valid)
-    if abs(dx) >= abs(dy) and abs(dx) >= SWIPE_THRESHOLD:
-        return "swipe-right" if dx > 0 else "swipe-left"
-    if dy >= SWIPE_THRESHOLD:
-        return "swipe-down"
-    return None
-
-
 def daemon():
     import evdev
     from evdev import ecodes
@@ -149,53 +202,23 @@ def daemon():
     path, name, dev = found
     dlog(f"omarchy-touch: watching {path} ({name})")
 
-    tr = Tracker()
-    first_touch_t = None
-    last_action = 0.0
+    def dispatch(action):
+        dlog(f"-> {action}")
+        if action == "tap2":
+            run(["omarchy-close"])
+        elif action == "tap3":
+            run(["omarchy-vk", "toggle"])
+        elif action == "swipe-left":
+            run(["hyprctl", "dispatch", "workspace", "+1"])
+        elif action == "swipe-right":
+            run(["hyprctl", "dispatch", "workspace", "-1"])
+        elif action == "swipe-down":
+            run(["omarchy-shell", "-q", "shell", "toggle", "omarchy.menu",
+                 '{"menu":"root"}'])
 
-    def reset():
-        nonlocal first_touch_t
-        tr.touches.clear()
-        tr.newest = None
-        first_touch_t = None
-
-    for e in dev.read_loop():
-        if e.type != ecodes.EV_ABS:
-            continue
-        if e.code == ecodes.ABS_MT_TRACKING_ID:
-            if e.value >= 0:
-                tr.on_tid(e.value)
-                if first_touch_t is None:
-                    first_touch_t = time.monotonic()
-                    dlog(f"down tid={e.value} (first) active={len(tr.touches)}")
-                else:
-                    dlog(f"down tid={e.value} active={len(tr.touches)} "
-                         f"gap={(time.monotonic()-first_touch_t)*1000:.0f}ms")
-            else:
-                tr.on_tid(e.value)
-                dlog(f"up tid={-e.value if False else e.value} active={len(tr.touches)}")
-                if len(tr.touches) == 0:
-                    now = time.monotonic()
-                    action = classify(tr, first_touch_t, now)
-                    if action and now - last_action >= COOLDOWN:
-                        last_action = now
-                        dlog(f"-> {action}")
-                        if action == "tap2":
-                            run(["omarchy-close"])
-                        elif action == "tap3":
-                            run(["omarchy-vk", "toggle"])
-                        elif action == "swipe-left":
-                            run(["hyprctl", "dispatch", "workspace", "+1"])
-                        elif action == "swipe-right":
-                            run(["hyprctl", "dispatch", "workspace", "-1"])
-                        elif action == "swipe-down":
-                            run(["omarchy-shell", "-q", "shell", "toggle", "omarchy.menu",
-                                 '{"menu":"root"}'])
-                    reset()
-        elif e.code == ecodes.ABS_MT_POSITION_X:
-            tr.on_x(e.value)
-        elif e.code == ecodes.ABS_MT_POSITION_Y:
-            tr.on_y(e.value)
+    process_events(
+        ((e.code, e.value) for e in dev.read_loop() if e.type == ecodes.EV_ABS),
+        dbg=dispatch)
 
 
 if __name__ == "__main__":

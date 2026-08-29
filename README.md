@@ -99,10 +99,12 @@ passive evdev daemon (no grab) on the Wacom finger device; gestures only
 run CLI/hyprctl (never synthesise input): **2-finger tap = VK toggle ·
 2-finger swipe LEFT/RIGHT = workspace +1/-1 · 2-finger swipe DOWN = omarchy
 menu**. hyprpm route considered and skipped (no gesture plugin for
-Hyprland 0.56.2; external daemons as MVP dep rejected). Protocol finding:
-panel declares 10 MT slots but the driver never emits `ABS_MT_SLOT`
-→ contacts attributed packet-style (newest TID owns X/Y), exact for single
-finger, approximate for concurrent contacts — thresholds tuned for that.
+Hyprland 0.56.2; external daemons as MVP dep rejected). Live-capture
+protocol finding (2026-08-29): the panel IS true multi-touch (S0/S1/S2);
+single-touch streams are slot-less (bare events imply slot 0), multi-touch
+frames carry `ABS_MT_SLOT` per contact. The tracker is slot-keyed with
+last-seen-slot fallback; the earlier "no SLOT events" claim (omarchy-vk
+note) was disproven and corrected.
 Classifier verified with 10 synthetic cases (all PASS); daemon running now
 and autostarted (`autostart.lua`). **A physical two-finger pass is
 pending** (my two live capture windows got no touches) — see Next actions.

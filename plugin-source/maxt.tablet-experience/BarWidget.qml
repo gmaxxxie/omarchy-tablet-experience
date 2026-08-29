@@ -10,6 +10,7 @@ import qs.Ui
 //
 // The widget reads live state off the plugin's service singleton; the label
 // updates on every mode change because `service.mode` is a notified property.
+// Label is plain text (no nerd-glyph dependency) so it renders on any font.
 
 BarWidget {
   id: root
@@ -28,7 +29,7 @@ BarWidget {
 
     active: root.tablet
     useActiveColor: true
-    text: root.tablet ? "\uF03FF Tablet" : "\uF0322 Laptop"
+    text: root.tablet ? "Tablet" : "Laptop"
     tooltipText: root.tablet
       ? "Tablet mode — left click: laptop · right click: rotation preset (" + (root.tabletService ? root.tabletService.tabletRotation : "off") + ")"
       : "Laptop mode — left click: tablet · right click: rotation preset"
