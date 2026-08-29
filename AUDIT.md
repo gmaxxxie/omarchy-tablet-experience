@@ -295,10 +295,18 @@ archived `plugin-source/`): `service` + `bar-widget` kinds.
   `~/.local/share/fcitx5/rime/wanxiang-lts-zh-hans.gram`, restarted
   `omarchy-fcitx5.service`; the error is gone and `rime_deployer --build`
   runs clean (language-model prediction now active; no sudo used).
-  Remaining (sudo): optional `gst-plugins-good` (v4l2src) and
-  `/etc/modprobe.d/blacklist-ipu6.conf` (`blacklist intel-ipu6` +
-  `intel-ipu6-isys`) to remove the 64 junk isys video nodes (next boot;
-  live unload blocked by PipeWire holding the nodes).
+
+### 2026-08-29 — Optional cleanups done (gst + ipu6 blacklist)
+
+- `gst-plugins-good` installed (user, sudo) — `v4l2src` is now available:
+  `gst-launch-1.0 v4l2src device=/dev/video64 … jpegdec ! fakesink` runs
+  clean (3 frames, no errors).
+- `/etc/modprobe.d/blacklist-ipu6.conf` written (blacklist `intel-ipu6`,
+  `intel-ipu6-isys`; user fingerprint auth) and the modules were ALSO
+  unloaded live right away (`modprobe -r`, PipeWire did not hold the isys
+  nodes open as feared): `lsmod` clean of ipu6, `/dev/video*` went from 68
+  → 4 nodes. UVC RGB/IR nodes (64–67) untouched — recaptured 1280x720 MJPG
+  frames fine. Blacklist persists across boots; the isys nodes stay gone.
 
 Cleared by controlled experiments: `gestures:workspace_swipe_touch` (off → no change), fcitx5 (fully stopped → no change), touch device hardware (raw coords verified correct), fonts/Rime.
 

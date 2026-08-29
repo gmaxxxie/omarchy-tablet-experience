@@ -116,11 +116,12 @@ relogin/restart so WirePlumber picks the UVC device up.**
 `~/.local/share/fcitx5/rime/wanxiang-lts-zh-hans.gram` (420MB, from
 `amzxyz/RIME-LMDG` release `LTS`), fcitx5 restarted, the `error opening gram
 db` journal error is gone, `rime_deployer --build` clean. No sudo needed.
-Remaining optional sudo items:
-
-    sudo pacman -S gst-plugins-good                                    # v4l2src for gst
-    printf 'blacklist intel-ipu6\nblacklist intel-ipu6-isys\n' | \
-      sudo tee /etc/modprobe.d/blacklist-ipu6.conf                     # drop 64 junk video nodes (next boot)
+**Also done (sudo via fingerprint):** `gst-plugins-good` installed
+(`v4l2src` pipeline verified: `gst-launch-1.0 v4l2src … jpegdec` clean
+3 frames); `intel-ipu6` + `intel-ipu6-isys` UNLOADED live and blacklisted
+(`/etc/modprobe.d/blacklist-ipu6.conf`) — junk `/dev/video0–63` gone
+(68 → 4 video nodes; UVC RGB/IR still at 64–67, recaptured 1280x720 MJPG
+frames OK).
 
 0. **🎯 IMPORTANT — relogin to activate: the plugin's new v0.2.0 code (auto-orient, keyboard watcher, auto-switch) only loads on a fresh omarchy-shell (hot reload doesn't swap service QML — see AUDIT).** At that point the bar button, camera (wireplumber), gestures autostart, and plugin state all come up together.
 1. **After relogin:** verify `tablet-experience Service LOADED v2` in journal; test `SUPER+SHIFT+R` rotation cycle + touch mapping; bar button left/right click; `SUPER+SHIFT+U`; menu → Tablet; then opt-in `omarchy-shell maxt.tablet-experience setAutoOrient on` + `setAutoSwitch on` (calibrate with `omarchy-orient --watch` first, then `setMode tablet`).
