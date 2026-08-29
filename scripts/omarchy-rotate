@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # omarchy-rotate — rotate the internal display (ThinkPad X12 tablet experience).
 #
-# Usage: omarchy-rotate [-s] <0|1|2|3>
+# Usage: omarchy-rotate [-s] <0|1|2|3|next|prev>
 #   -s   silent: skip the OSD notification (used by auto-orientation)
-#   0 = landscape  (laptop normal)
-#   1 = portrait   (90°, top edge at right when facing screen)
-#   2 = flipped    (180°, screen folded back -> use in tablet mode)
-#   3 = portrait   (270°, top edge at left)
+#   0 = landscape  1 = portrait 90°  2 = flipped 180°  3 = portrait 270°
+#   next            cycle to the following orientation (0°→90°→180°→270°→0°)
+#   prev            cycle backwards
 #
 # Uses the Hyprland 0.56 Lua runtime API (hyprctl eval). Touch/pen mapping
 # follows automatically: input:touchdevice:output=Auto recalibrates to the
@@ -21,14 +20,25 @@ while [ "$#" -gt 0 ]; do
     *) break ;;
   esac
 done
-N="${1:-0}"
+ARG="${1:-0}"
+
+case "$ARG" in
+  0) label="landscape 0°" ;;
+  1) label="portrait 90°" ;;
+  2) label="flipped 180°" ;;
+  3) label="portrait 270°" ;;
+  next|prev)
+    cur="$(hyprctl monitors -j | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["transform"])' 2>/dev/null || echo 0)"
+    if [ "$ARG" = "next" ]; then N=$(( (cur + 1) % 4 )); else N=$(( (cur + 3) % 4 )); fi
+    ;;
+  *) echo "usage: omarchy-rotate [-s] <0|1|2|3|next|prev>" >&2; exit 2 ;;
+esac
 
 case "$N" in
   0) label="landscape 0°" ;;
   1) label="portrait 90°" ;;
   2) label="flipped 180°" ;;
   3) label="portrait 270°" ;;
-  *) echo "usage: omarchy-rotate [-s] <0|1|2|3>" >&2; exit 2 ;;
 esac
 
 hyprctl eval "hl.monitor({ output = \"${DISP}\", transform = ${N} })" >/dev/null

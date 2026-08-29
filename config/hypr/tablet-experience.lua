@@ -2,8 +2,10 @@
 -- Phase 2: native touch workspace swipe (restored after bar-touch fix).
 -- Phase 4: Super+U toggles squeekboard (on-screen keyboard); touch devices
 --          get the same toggle via bottom-edge upward swipe (omarchy-vk daemon).
--- Phase 5: manual screen rotation — Super+Ctrl+0..3 (omarchy-rotate); touch/
---          pen mapping follows automatically (input:touchdevice:output=Auto).
+-- Phase 5: rotation — Super+Shift+R cycles orientation (omarchy-rotate next),
+--          touch/pen mapping follows automatically (input:touchdevice output
+--          Auto). NOTE: Super+Ctrl+0..3 previously used here clashed with
+--          omarchy's Bar-panel keybinds (keycode-bound); removed.
 hl.config({
   gestures = {
     workspace_swipe_touch = true,
@@ -19,15 +21,6 @@ hl.bind("SUPER + SHIFT + U", hl.dsp.exec_cmd("omarchy-shell maxt.tablet-experien
   description = "Toggle Laptop/Tablet mode (tablet experience)",
 })
 
-hl.bind("SUPER + CTRL + 0", hl.dsp.exec_cmd("omarchy-rotate 0"), {
-  description = "Rotate screen: landscape 0°",
-})
-hl.bind("SUPER + CTRL + 1", hl.dsp.exec_cmd("omarchy-rotate 1"), {
-  description = "Rotate screen: portrait 90°",
-})
-hl.bind("SUPER + CTRL + 2", hl.dsp.exec_cmd("omarchy-rotate 2"), {
-  description = "Rotate screen: flipped 180°",
-})
-hl.bind("SUPER + CTRL + 3", hl.dsp.exec_cmd("omarchy-rotate 3"), {
-  description = "Rotate screen: portrait 270°",
+hl.bind("SUPER + SHIFT + R", hl.dsp.exec_cmd("omarchy-rotate next"), {
+  description = "Rotate screen: next orientation (0°→90°→180°→270°)",
 })

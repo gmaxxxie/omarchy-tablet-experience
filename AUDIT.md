@@ -208,6 +208,28 @@ registered (verified via `hyprctl binds`). Touch/pen mapping stays `Auto`
 (follows transform natively) — **pending physical user verification** in
 portrait/flipped orientations.
 
+### 2026-08-29 — Keybind conflict fix (SUPER+CTRL+0..3 → SUPER+SHIFT+R)
+
+User reported shortcut clash with omarchy defaults. Full `hyprctl binds -j`
+audit (234 binds) decoded the running keymap:
+
+- **omarchy's `SUPER+CTRL+1..9` = "Bar panel 1..9"** — keycode-bound (key
+  field empty in JSON), exactly the zone my Phase 5 rotation binds
+  (`SUPER+CTRL+0..3`) occupied ⇒ real conflict, confirmed.
+- The entire digit zone is saturated: `SUPER+1..9` switch workspace,
+  `SUPER+SHIFT+1..9` move window, `SUPER+SHIFT+ALT+1..9` move silently,
+  `SUPER+CTRL+1..9` bar panels, `SUPER+ALT+1..5` group windows ⇒ digits are
+  off-limits for custom binds.
+- `SUPER+SHIFT+U` (mode toggle) and `SUPER+U` (VK) verified FREE (only our
+  binds on those). `SUPER+SHIFT+R` verified FREE (R = rotate).
+
+Fix: removed the four `SUPER+CTRL+0..3` binds; `omarchy-rotate` extended
+with `next`/`prev` (reads current transform via `hyprctl monitors -j`);
+single bind `SUPER+SHIFT+R` → `omarchy-rotate next` (0°→90°→180°→270°
+cycle). Reloaded: zero configerrors, exactly one `key=R mm=65` record,
+old digit binds gone. Fine-grained fixes remain: bar-widget right-click
+preset ring, menu `tablet.*` rows, auto-orientation (Phase 6, opt-in).
+
 **Phase 6 prep:** IIO accel_3d live (g=(−0.35,−6.61,−8.21), dominant −z ⇒
 `normal`; |g|≈10.55 static bias). Probe `omarchy-orient` (python3, sysfs,
 zero deps; `once`/`--json`/`--watch`) classifies normal/bottom-up/left-up/

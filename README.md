@@ -2,7 +2,7 @@
 
 Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 + Hyprland 0.56.2 for the **Lenovo ThinkPad X12 Detachable Gen 1**.
 
-> **Current stage: PHASE 5+7/8 — rotation working (SUPER+CTRL+0..3); Laptop/Tablet state machine + Omarchy bar-widget plugin live (`maxt.tablet-experience`); Phase 12 camera verified via UVC**
+> **Current stage: PHASE 5+7/8 — rotation working (SUPER+SHIFT+R cycles); Laptop/Tablet state machine + Omarchy bar-widget plugin live (`maxt.tablet-experience`); Phase 12 camera verified via UVC**
 > Working location: `~/.config/omarchy/plugins/` (the plugin), source/docs live in this folder.
 
 ## Status board
@@ -38,7 +38,7 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 | `~/.config/hypr/autostart.lua` | added `o.launch_on_start("omarchy-vk daemon")` (Phase 4 persistence) | `autostart.lua.bak.*` |
 | `~/.local/bin/omarchy-rotate` + `scripts/omarchy-rotate` | Phase 5 — rotation helper (transform 0/90/180/270) + OSD | (repo archive) |
 | `~/.local/bin/omarchy-orient` + `scripts/omarchy-orient` | Phase 6 — IIO accel posture probe (sysfs, zero deps) | (repo archive) |
-| `config/hypr/tablet-experience.lua` (this repo) | Phase 5 — archived copy incl. `SUPER+CTRL+0..3` rotation binds | — |
+| `config/hypr/tablet-experience.lua` (this repo) | Phase 5 — archived copy incl. `SUPER+SHIFT+R` rotation-cycle bind | — |
 | `PHASE12-HARDWARE.md` (this repo) | NEW — camera UVC verification + IPU6 dead-end analysis, fingerprint/BT/audio status | — |
 | `~/.config/fcitx5/profile` | added `rime` as 2nd input method | `profile.bak.1787928474` |
 | `~/.local/share/fcitx5/rime/` | NEW — Wanxiang v17.7.1 files | (download from GitHub releases) |
@@ -50,11 +50,13 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 **Phase 5 — manual rotation (done, pending user touch-check):** `omarchy-rotate`
 (script + OSD, live at `~/.local/bin/`, archived at `scripts/omarchy-rotate`)
 rotates eDP-1 via `hyprctl eval "hl.monitor({...})"` — all 4 transforms
-verified roundtrip. Binds `SUPER+CTRL+0..3` → 0°/90°/180°/270°, added to
+verified roundtrip. Binds `SUPER+SHIFT+R` → rotate to next orientation
+(0°/90°/180°/270° cycle, `omarchy-rotate next`), added to
 `tablet-experience.lua` (archived at `config/hypr/tablet-experience.lua`),
 config reloaded clean, binds registered. Touch/pen mapping follows the
 monitor automatically (`input:touchdevice:output=Auto`), awaiting physical
-verification.
+verification. (Original `SUPER+CTRL+0..3` binds REMOVED — they collided with
+omarchy's `SUPER+CTRL+1..9` bar-panel keybinds; see AUDIT.)
 
 **Phase 6 — auto-rotation (iio-sensor-proxy now installed; wiring pending):**
 IIO accel_3d live (g=(−0.35,−6.61,−8.21), dominant −z ⇒ `normal`). Probe
@@ -111,7 +113,7 @@ relogin/restart so WirePlumber picks the UVC device up.**
 ## Next actions
 
 0. **🎯 IMPORTANT — relogin to activate: the plugin's new v0.2.0 code (auto-orient, keyboard watcher, auto-switch) only loads on a fresh omarchy-shell (hot reload doesn't swap service QML — see AUDIT).** At that point the bar button, camera (wireplumber), gestures autostart, and plugin state all come up together.
-1. **After relogin:** verify `tablet-experience Service LOADED v2` in journal; test `SUPER+CTRL+1/2/3/0` rotation + touch mapping; bar button left/right click; `SUPER+SHIFT+U`; menu → Tablet; then opt-in `omarchy-shell maxt.tablet-experience setAutoOrient on` + `setAutoSwitch on` (calibrate with `omarchy-orient --watch` first, then `setMode tablet`).
+1. **After relogin:** verify `tablet-experience Service LOADED v2` in journal; test `SUPER+SHIFT+R` rotation cycle + touch mapping; bar button left/right click; `SUPER+SHIFT+U`; menu → Tablet; then opt-in `omarchy-shell maxt.tablet-experience setAutoOrient on` + `setAutoSwitch on` (calibrate with `omarchy-orient --watch` first, then `setMode tablet`).
 2. **Camera:** webcamtests.com in Chromium (libcamera now present after relogin).
 3. **squeekboard typing + Rime** (`nihao` → candidates) — Phase 4 verification.
 4. **User device tests:** fingerprint unlock; BT pair; speaker/mic.
