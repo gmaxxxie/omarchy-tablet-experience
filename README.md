@@ -15,7 +15,7 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 | 3 | Input method (Chinese) | ✅ fcitx5 + Rime + Wanxiang installed & deployed (see below) |
 | 4 | Virtual keyboard | 🟡 squeekboard (extra) core path **working**: D-Bus toggle ✓, bottom-edge up-swipe show ✓ (user-tested), `SUPER+U` bind ✓; pending autostart + touch/Chinese input verification |
 | 5–11 | rotation / state / UI / auto-switch | ⏳ pending |
-| 12 | **Hardware full bring-up (esp. camera)** | 🔍 user-added: camera = Syntek `174f:118f` via Intel IPU6 (`/dev/video0–13` seen, **output unverified**); fingerprint `06cb:00bd` + BT AX201 + audio pending |
+| 12 | **Hardware full bring-up (esp. camera)** | 🟡 camera **verified via UVC** (RGB MJPG + IR, see `PHASE12-HARDWARE.md`); IPU6 CSI path confirmed dead end. Fingerprint enrolled+live, BT scan verified, audio sinks/sources present. Remaining: `libcamera` install → browser test; user pair/unlock tests |
 
 ## System facts (captured 2026-08-28)
 
@@ -35,12 +35,24 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 |---|---|---|
 | `~/.config/hypr/hyprland.lua` | appended `require("hypr.tablet-experience")` | `hyprland.lua.bak.1787928342` |
 | `~/.config/hypr/tablet-experience.lua` | NEW — plugin-owned generated config (Phase 2 swipe + Phase 4 `SUPER+U` vk bind) | latest edit 2026-08-29 |
+| `~/.config/hypr/autostart.lua` | added `o.launch_on_start("omarchy-vk daemon")` (Phase 4 persistence) | `autostart.lua.bak.*` |
+| `PHASE12-HARDWARE.md` (this repo) | NEW — camera UVC verification + IPU6 dead-end analysis, fingerprint/BT/audio status | — |
 | `~/.config/fcitx5/profile` | added `rime` as 2nd input method | `profile.bak.1787928474` |
 | `~/.local/share/fcitx5/rime/` | NEW — Wanxiang v17.7.1 files | (download from GitHub releases) |
 
 **Packages added (official `extra`, all removable):** fcitx5-rime, librime(+data), noto-fonts-cjk, wqy-microhei, python-pywayland (diagnostic tool — remove later), squeekboard, python-evdev (gesture daemon dep).
 
 ## Current runtime state (2026-08-29)
+
+**Hardware (Phase 12):** camera output verified — device is a USB camera bridge
+with two UVC functions: `/dev/video64` RGB (MJPG 2592x1944 max) and
+`/dev/video66` IR (GREY 640x480); real frames captured (`verify/cam-rgb-1280x720.jpg`;
+see `PHASE12-HARDWARE.md`). Intel IPU6 CSI path is a confirmed dead end
+(`IPU6 in secure mode`, `ov8856: failed to find sensor: -5`) — `/dev/video0–63`
+isys nodes are junk. Fingerprint: enrolled (`#0: right-index-finger`), sudo PAM
+prompt verified live. BT AX201 scan verified. Audio: SOF sinks + 2 mics via
+WirePlumber. **Portal/browser camera still needs `sudo pacman -S libcamera`**
+(PipeWire's v4l2 monitor hides the UVC device).
 
 - `gestures:workspace_swipe_touch = true` (Phase 2, verified)
 - VK renderer: **squeekboard** — D-Bus `sm.puri.OSK0.SetVisible`, state property `.Visible` (toggle = read-then-invert)
@@ -50,10 +62,12 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 
 ## Next actions
 
-1. **Persist gesture daemon:** add `o.launch_on_start("omarchy-vk daemon")` to `~/.config/hypr/autostart.lua` (after user confirms gesture feel on next login).
-2. **Verify input through skeekboard:** touch a key in a foot/editor/browser — confirms Wayland key injection; then fcitx5 Rime pinyin via VK (Ctrl+Space, type `nihao` → candidates).
-3. **Phase 12 hardware bring-up begins (user priority): camera first** — IPU6 stack output test → fingerprint (fprintd) → BT → audio.
-4. Later phases: 5 rotation, 6 iio-sensor-proxy orientation, 7 Laptop/Tablet state, 8 plugin, 9 udev keyboard watcher, 10 auto-switch, 11 gestures.
+1. **Camera ported into apps:** `sudo pacman -S libcamera` (official) → restart session / wireplumber → test in Chromium (webcamtests.com). Done by user (sudo needs fingerprint).
+2. **Verify input through squeekboard:** touch a key in a foot/editor/browser — confirms Wayland key injection; then fcitx5 Rime pinyin via VK (Ctrl+Space, type `nihao` → candidates).
+3. **User device tests:** unlock via fingerprint; pair a BT device; speaker/mic playback+record.
+4. **Gesture daemon autostart persisted** (`autostart.lua` — takes effect next login; current daemon already running). Confirm gesture feel on next login.
+5. Optional cleanups: blacklist `intel-ipu6` modules (remove 64 junk video nodes), `gst-plugins-good` for gst pipelines.
+6. Later phases: 5 rotation, 6 iio-sensor-proxy orientation, 7 Laptop/Tablet state, 8 plugin, 9 udev keyboard watcher, 10 auto-switch, 11 gestures.
 
 ## Repository layout
 

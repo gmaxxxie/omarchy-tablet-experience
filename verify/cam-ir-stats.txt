@@ -1,0 +1,1 @@
+IR 640x480 mean=48.7 stddev=28.3

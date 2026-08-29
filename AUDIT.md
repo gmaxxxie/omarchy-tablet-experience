@@ -101,7 +101,7 @@ Omarchy's `omarchy hw clamshell` = lid-closed AND external-monitors — NOT the 
 10. Phase 10: auto-switch (opt-in)
 11. Phase 11: optional multi-touch gestures — hyprpm checks against 0.56.2 only (no plugins loaded today; no third-party daemon as MVP dependency)
 12. **Phase 12 (追加, user): 硬件全启动，尤其摄像头** — inventory all hw not covered by Phase 0; make every device fully usable.
-    - **摄像头 (highest priority):** Syntek `174f:118f` via Intel IPU6 stack (`ipu6` PCI 00:05.0, `/dev/video0–13`). Verify userspace stack (ipu6-camera-hal/ucode, gst/v4l2), get first frames, test in browser/omarchy apps; permissions/ifb handling if needed.
+    - **摄像头 (highest priority):** Syntek `174f:118f` — **UVC path VERIFIED** (RGB+IR frames, see `PHASE12-HARDWARE.md`); IPU6 CSI stack (`isys` nodes `/dev/video0–63`) confirmed **dead end** on this board (secure mode + sensor behind USB bridge). Remaining: `libcamera` install for portal/browser use + user browser test.
     - Fingerprint `06cb:00bd` Synaptics Prometheus → fprintd enroll/test.
     - Bluetooth `8087:0026` AX201 → verify scan/pair.
     - Audio sof-hda-dsp → capture+playback test (mic/headphone/HDMI).
@@ -170,6 +170,30 @@ Integrated RGB Camera），由 **Intel IPU6** 栈驱动（PCI `0000:00:05.0`，
 → 新增路线图 Phase 12（见 §10）。
 
 Symptom: tapping the Omarchy top bar passes through to the desktop (double-tap opens wallpaper picker); mouse clicks on the bar work. User reports it worked right after system install.
+
+### 2026-08-29 — Phase 12 hardware bring-up: camera verified (UVC), FP/BT/audio audited
+
+**Camera — VERIFIED via UVC path. IPU6 CSI = dead end.** The `174f:118f`
+Syntek is a USB camera bridge (SunplusIT) exposing TWO UVC functions:
+`/dev/video64` RGB (MJPG ≤2592x1944@30) and `/dev/video66` IR (GREY
+640x480@30). Captured real frames (stats: RGB mean≈108/σ≈41, IR mean 48.7/σ
+28.3); artifacts in `verify/`. The kernel IPU6 path fails by design on this
+board: `IPU6 in secure mode` (CSE refuses), `ov8856 probe error -5` (sensor is
+behind the USB bridge), psys runtime-PM fail ⇒ `/dev/video0–63` isys nodes are
+useless, AUR ipu6 HAL would not help. Full analysis: `PHASE12-HARDWARE.md`.
+**Pending for browser/portal use:** `sudo pacman -S libcamera` (official) so
+WirePlumber/portal present the UVC camera (currently hidden from PipeWire's
+v4l2 monitor).
+
+**Fingerprint:** fprintd sees Synaptics `06cb:00bd`; `#0: right-index-finger`
+already enrolled; sudo PAM prompt verified live (fingerprint timed out in this
+headless session — expected). **BT:** AX201 up, 10s scan found 13+ devices
+(verified). **Audio:** SOF card 0 + ALC287, sinks (Speaker/HDMI×3) + 2 mics via
+WirePlumber (verified); cosmetic RTKit error (no realtime prio).
+
+**Phase 4 persistence:** `~/.config/hypr/autostart.lua` now runs
+`omarchy-vk daemon` via `o.launch_on_start` (backup saved) — live daemon still
+running from earlier terminal; daemon will auto-start next login.
 
 Cleared by controlled experiments: `gestures:workspace_swipe_touch` (off → no change), fcitx5 (fully stopped → no change), touch device hardware (raw coords verified correct), fonts/Rime.
 
