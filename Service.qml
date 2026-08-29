@@ -23,6 +23,7 @@ import Quickshell.Io
 // IPC (omarchy-shell maxt.tablet-experience <method>):
 //   getState | getMode | toggle | setMode <laptop|tablet>
 //   setRotation <off|0|2> | setAutoOrient <on|off> | setAutoSwitch <on|off>
+//   rotateLeft | rotateRight        (90° relative steps, tablet mode)
 
 Item {
   id: root
@@ -47,6 +48,9 @@ Item {
   // repeated read does nothing, and manual transforms are re-corrected).
   property string orientation: "unknown"
   property string appliedFor: ""
+  // True while a relative (⟲/⟳) rotation is in flight, so its stdout result
+  // updates the persisted preset instead of being ignored.
+  property bool pendingRelative: false
 
   PersistentProperties {
     id: persisted
@@ -122,6 +126,25 @@ Item {
     return "off (initial)"
   }
 
+  // Manual 90° steps for the tablet popup (⟲/⟳). Rotate from the CURRENT
+  // orientation and take control away from the sensor. "next" turns the
+  // content counter-clockwise (= sensor left-up), "prev" clockwise
+  // (= right-up); texp-rotate prints the new transform so the preset stays
+  // in sync.
+  function rotateStep(dir) {
+    if (!isTabletMode) return
+    if (rotateProcess.running) return
+    persisted.autoOrient = false
+    pendingRelative = true
+    rotateProcess.command = ["texp-rotate", dir]
+    rotateProcess.running = true
+  }
+
+  // Component methods used by the bar popup (⟲/⟳); the IpcHandler below
+  // exposes the same actions over omarchy-shell for CLI/menu use.
+  function rotateLeft() { rotateStep("next") }
+  function rotateRight() { rotateStep("prev") }
+
   // Idempotent side-effect pass — only runs on real transitions.
   function applyNext() {
     osd("tablet", isTabletMode ? "Tablet mode" : "Laptop mode")
@@ -185,7 +208,22 @@ Item {
   // ------------------------------------------------------------- plumbing
 
   Process { id: osdProcess }
-  Process { id: rotateProcess }
+
+  Process {
+    id: rotateProcess
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        // NOTE: `persisted` must be addressed by id here (component scope), not
+        // as root.persisted — ids are not properties of their declaring object.
+        if (root.pendingRelative) {
+          root.pendingRelative = false
+          var m = /^([0-3])\s*$/.exec(String(text || "").trim())
+          if (m) persisted.tabletRotation = m[1]
+        }
+      }
+    }
+  }
 
   // Reads the current monitor transform so "Fixed" can freeze the screen
   // where it currently is instead of snapping back to 0°.
@@ -306,6 +344,16 @@ Item {
       persisted.autoSwitchMode = on === "on" || on === "true" || on === "1" || on === "yes"
       osd("keyboard", "Auto mode switch: " + (persisted.autoSwitchMode ? "on" : "off"))
       return persisted.autoSwitchMode ? "on" : "off"
+    }
+
+    function rotateLeft(): string {
+      root.rotateStep("next")
+      return root.tabletRotation
+    }
+
+    function rotateRight(): string {
+      root.rotateStep("prev")
+      return root.tabletRotation
     }
   }
 }

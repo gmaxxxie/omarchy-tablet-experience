@@ -14,7 +14,8 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
 - **Laptop ⇄ Tablet state machine** — persistent across shell reloads, OSD
   feedback, IPC-controlled.
 - **Rotation** — 4-way manual cycle (`SUPER+SHIFT+R`), sensor auto-follow
-  (iio-sensor-proxy, tablet mode), or fixed 0°/90°/180°/270° presets. Touch
+  (iio-sensor-proxy, tablet mode), or stepwise ⟲/⟳ 90° buttons in the
+  tablet popup (icon-only, replaces the old numeric picker). Touch
   calibration is rotated along with the screen (Hyprland does not do this
   itself).
 - **Virtual keyboard** — squeekboard via `SUPER+U` or a bottom-edge up-swipe

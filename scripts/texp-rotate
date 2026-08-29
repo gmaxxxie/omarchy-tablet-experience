@@ -7,6 +7,9 @@
 #   next            cycle to the following orientation (0°→90°→180°→270°→0°)
 #   prev            cycle backwards
 #
+# Prints the resulting transform (0-3) as the last stdout line, so the
+# tablet-experience service can persist the angle after a relative step.
+#
 # Display: defaults to the FIRST Hyprland monitor (usually the internal
 # panel); override with OMARCHY_ROTATE_DISPLAY.
 #
@@ -57,3 +60,5 @@ hyprctl eval "hl.config({ input = { touchdevice = { transform = ${N} } } })" >/d
 if [ "$SILENT" -eq 0 ]; then
   omarchy osd -i rotate-cw -m "Rotate: ${label}" >/dev/null 2>&1 || true
 fi
+
+printf '%s\n' "$N"

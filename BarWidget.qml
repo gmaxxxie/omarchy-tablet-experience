@@ -180,45 +180,39 @@ Panel {
         PanelSeparator { }
 
         PanelSectionHeader {
-          text: "Rotation"
+          text: "Rotation" + (root.tabletRotation === "auto"
+            ? "" : " · " + {"0": "0°", "1": "90°", "2": "180°", "3": "270°"}[root.tabletRotation])
         }
 
+        // Auto (sensor) + manual 90° steps, icon-only — replaces the old
+        // numeric angle picker. ⟲/⟳ rotate from the CURRENT orientation and
+        // take control away from the sensor; the preset follows the applied
+        // transform, shown in the section header above.
         Row {
           width: parent.width
           spacing: Style.spacing.sm
 
           Button {
-            width: (parent.width - parent.spacing) / 2
+            width: (parent.width - parent.spacing * 2) / 3
             height: Style.space(40)
             text: "Auto"
             active: root.tabletRotation === "auto"
+            tooltipText: "Sensor-following rotation"
             onClicked: { if (root.service) root.service.setRotationPreset("auto") }
           }
           Button {
-            width: (parent.width - parent.spacing) / 2
+            width: (parent.width - parent.spacing * 2) / 3
             height: Style.space(40)
-            text: "Fixed"
-            active: root.tabletRotation !== "auto"
-            onClicked: { if (root.service) root.service.toFixedMode() }
+            text: "\uF2EA"        // fa-rotate-left → content 90° counter-clockwise
+            tooltipText: "Rotate left (90° counter-clockwise)"
+            onClicked: { if (root.service) root.service.rotateLeft() }
           }
-        }
-
-        // Fixed direction picker: shown only in fixed mode.
-        Row {
-          id: dirRow
-          width: parent.width
-          visible: root.tabletRotation !== "auto"
-          spacing: Style.spacing.sm
-
-          Repeater {
-            model: ["0°", "90°", "180°", "270°"]
-            delegate: Button {
-              width: (dirRow.width - dirRow.spacing * 3) / 4
-              height: Style.space(40)
-              text: modelData
-              active: root.tabletRotation === String(index)
-              onClicked: { if (root.service) root.service.setRotationPreset(String(index)) }
-            }
+          Button {
+            width: (parent.width - parent.spacing * 2) / 3
+            height: Style.space(40)
+            text: "\uF2F1"        // fa-rotate-right → content 90° clockwise
+            tooltipText: "Rotate right (90° clockwise)"
+            onClicked: { if (root.service) root.service.rotateRight() }
           }
         }
       }
@@ -261,5 +255,5 @@ Panel {
     }
   }
 
-  Component.onCompleted: console.log("MAXT-WIDGET-ONLINE v0.5 mode=" + (root.tablet ? "tablet" : "laptop"))
+  Component.onCompleted: console.log("MAXT-WIDGET-ONLINE v0.6 mode=" + (root.tablet ? "tablet" : "laptop"))
 }
