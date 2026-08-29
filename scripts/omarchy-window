@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+# omarchy-window — window actions for the tablet bar button.
+#
+# Hyprland does NOT focus windows on touch tap (see Touch.cpp), so "the
+# focused window" is the wrong target on a touchscreen. These actions instead
+# target the window the user LAST TOUCHED, as recorded by the omarchy-touch
+# daemon (~/.local/state/omarchy-touch/touch-state), falling back to the
+# focused window when there is no fresh touch:
+#
+#   resolve               print the target address (state -> focused)
+#   resolve --at X Y      print the window at logical coords (no fallback)
+#   close                 close the target (graceful)
+#   minimize              move the target to the scratchpad (special
+#                         workspace — Hyprland has no native minimize)
+#   maximize              toggle maximize (client-side fullscreen state)
+#   default               restore: un-maximize, un-fullscreen, un-float
+#
+# All dispatches go through the Hyprland 0.56 Lua API via hyprctl eval
+# (the old `hyprctl dispatch` shim mangles arguments in Lua mode).
+#
+# Options: --dry-run  print the resolved address/command instead of running
+
+set -eu
+
+TOUCH_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-touch/touch-state"
+STATE_FRESH_S=8
+
+ACTION="${1:-resolve}"
+shift || true
+AT_X=""
+AT_Y=""
+DRY_RUN=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --at) AT_X="${2:-}"; AT_Y="${3:-}"; shift 2 ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    *) shift ;;
+  esac
+done
+
+# ------------------------------------------------------------------ resolve
+
+# Hit-test `hyprctl clients -j` at logical (x, y): topmost mapped window on
+# the active workspace of the monitor the point lies in. Prints the bare
+# address ("0x…"), nothing when no window covers the point.
+hit_test() {
+  local x="$1" y="$2"
+  hyprctl clients -j 2>/dev/null | AT="$x $y" python3 -c '
+import json, os, sys
+
+try:
+    x, y = (float(v) for v in os.environ["AT"].split()[:2])
+except Exception:
+    sys.exit(0)
+
+try:
+    clients = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+
+ws = None
+try:
+    ws = json.loads(os.popen("hyprctl monitors -j 2>/dev/null").read() or "[]")[0]["activeWorkspace"]["id"]
+except Exception:
+    pass
+
+best = None
+for c in clients:
+    if not c.get("mapped") or c.get("hidden"):
+        continue
+    if ws is not None and (c.get("workspace") or {}).get("id") != ws:
+        continue
+    at, sz = c.get("at") or [], c.get("size") or []
+    if len(at) < 2 or len(sz) < 2:
+        continue
+    if at[0] <= x < at[0] + sz[0] and at[1] <= y < at[1] + sz[1]:
+        best = c   # last match = topmost (render order)
+if best:
+    sys.stdout.write(best.get("address", ""))
+' 2>/dev/null
+}
+
+# State file line: "<lx> <ly> <address>"; address may be empty.
+read_state_point() {
+  [ -f "$TOUCH_STATE" ] || return 1
+  local age=$(( $(date +%s) - $(stat -c %Y "$TOUCH_STATE" 2>/dev/null || echo 0) ))
+  [ "$age" -le "$STATE_FRESH_S" ] || return 1
+  head -1 "$TOUCH_STATE"
+}
+
+resolve() {
+  local addr=""
+  if [ -n "$AT_X" ] && [ -n "$AT_Y" ]; then
+    addr="$(hit_test "$AT_X" "$AT_Y")"
+  else
+    local pt
+    pt="$(read_state_point || true)"
+    if [ -n "$pt" ]; then
+      set -- $pt
+      local lx="${1:-}" ly="${2:-}" told="${3:-}"
+      # Stored window address wins when the window still exists; the point
+      # covers the case where it was recorded without one (or has moved).
+      if [ -n "$told" ] && hyprctl clients -j 2>/dev/null | grep -q "$told"; then
+        addr="$told"
+      elif [ -n "$lx" ] && [ -n "$ly" ]; then
+        addr="$(hit_test "$lx" "$ly")"
+      fi
+    fi
+    if [ -z "$addr" ]; then
+      # No fresh touch (laptop / keyboard use): the focused window is right.
+      addr="$(hyprctl activewindow -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+sys.stdout.write(d.get("address", "") if isinstance(d, dict) else "")
+' 2>/dev/null || true)"
+    fi
+  fi
+  printf '%s' "$addr"
+}
+
+# ---------------------------------------------------------------- dispatch
+
+lua_call() {  # lua_call "<lua expression>" -> dispatch it
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "hyprctl eval $1"
+    return 0
+  fi
+  hyprctl eval "$1" >/dev/null 2>&1 || true
+}
+
+window_sel() {  # whole ACTION argument table in ONE call: { window, ...opts }
+  printf "{ window = 'address:%s'" "$1"
+}
+
+ADDR="$(resolve)"
+[ -n "$ADDR" ] || exit 0
+
+case "$ACTION" in
+  resolve)
+    echo "$ADDR"
+    ;;
+  close)
+    lua_call "hl.dispatch(hl.dsp.window.close($(window_sel "$ADDR") }))"
+    ;;
+  minimize)
+    lua_call "hl.dispatch(hl.dsp.window.move($(window_sel "$ADDR"), workspace = 'special:scratchpad', follow = false }))"
+    ;;
+  maximize)
+    lua_call "hl.dispatch(hl.dsp.window.fullscreen($(window_sel "$ADDR"), mode = 'maximized', action = 'toggle', layout_aware = true }))"
+    ;;
+  default)
+    lua_call "hl.dispatch(hl.dsp.window.fullscreen($(window_sel "$ADDR"), mode = 'fullscreen', action = 'unset' }))"
+    lua_call "hl.dispatch(hl.dsp.window.fullscreen($(window_sel "$ADDR"), mode = 'maximized', action = 'unset' }))"
+    lua_call "hl.dispatch(hl.dsp.window.float($(window_sel "$ADDR"), action = 'disable' }))"
+    ;;
+  *)
+    echo "usage: omarchy-window <resolve|close|minimize|maximize|default> [--at X Y] [--dry-run]" >&2
+    exit 2
+    ;;
+esac

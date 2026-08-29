@@ -7,9 +7,14 @@
 #   next            cycle to the following orientation (0°→90°→180°→270°→0°)
 #   prev            cycle backwards
 #
-# Uses the Hyprland 0.56 Lua runtime API (hyprctl eval). Touch/pen mapping
-# follows automatically: input:touchdevice:output=Auto recalibrates to the
-# monitor's transform, so nothing else needs to change.
+# Uses the Hyprland 0.56 Lua runtime API (hyprctl eval).
+#
+# Touch alignment: Hyprland does NOT re-map touch coords when the output
+# rotates — the touch device keeps libinput's calibration matrix
+# (input:touchdevice:transform, default 0 = identity), so a rotated screen
+# would mis-map taps. We therefore set the touch-device transform to the SAME
+# value as the monitor transform; the daemon in omarchy-touch mirrors this
+# matrix when resolving touch points to logical coords.
 set -eu
 
 DISP="${OMARCHY_ROTATE_DISPLAY:-eDP-1}"
@@ -42,6 +47,9 @@ case "$N" in
 esac
 
 hyprctl eval "hl.monitor({ output = \"${DISP}\", transform = ${N} })" >/dev/null
+# Keep the touch device's calibration matrix in step with the screen, or taps
+# land mirrored/mis-mapped on a rotated display.
+hyprctl eval "hl.config({ input = { touchdevice = { transform = ${N} } } })" >/dev/null 2>&1 || true
 if [ "$SILENT" -eq 0 ]; then
   omarchy osd -i rotate-cw -m "Rotate: ${label}" >/dev/null 2>&1 || true
 fi

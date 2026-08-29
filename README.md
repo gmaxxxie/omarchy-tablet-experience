@@ -3,6 +3,7 @@
 Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 + Hyprland 0.56.2 for the **Lenovo ThinkPad X12 Detachable Gen 1**.
 
 > **Current stage: PHASE 5+7/8 — rotation working (SUPER+SHIFT+R cycles); Laptop/Tablet state machine + Omarchy bar-widget plugin live (`maxt.tablet-experience`); Phase 12 camera verified via UVC**
+> **v0.3.0 (2026-08-29): tablet window-manage popup (关闭/最小化/最大化/还原默认) — Hyprland touch doesn't focus, so actions target the window under the *last touch*; see README**
 > Working location: `~/.config/omarchy/plugins/` (the plugin), source/docs live in this folder.
 
 ## Status board
@@ -16,6 +17,7 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 | 4 | Virtual keyboard | 🟡 squeekboard (extra) core path **working**: D-Bus toggle ✓, bottom-edge up-swipe show ✓ (user-tested), `SUPER+U` bind ✓; pending autostart + touch/Chinese input verification |
 | 5–11 | rotation / state / UI / auto-switch | 🟡 P5 ✅ · P7/8 ✅ · P6/9/10 wired on disk (auto-orient + kb watcher + auto-switch, opt-in) ⏳ activate at next login · **P11 ✅ `omarchy-touch` multi-touch daemon (synthetics-tested, live, needs 2-finger pass)** |
 | 12 | **Hardware full bring-up (esp. camera)** | 🟡 camera **verified via UVC** (RGB MJPG + IR, see `PHASE12-HARDWARE.md`); IPU6 CSI confirmed dead end. libcamera now installed → browser test pending relogin. Fingerprint enrolled+live, BT scan verified, audio sinks/sources present |
+| 13 | **Tablet window manage (close/min/max/restore)** | ✅ implemented live (v0.3.0 bar popup + `omarchy-window`); **targeting fix**: Hyprland does NOT focus on touch tap (verified in Touch.cpp), so actions target the window under the **last touch** (recorded by `omarchy-touch`) — 2-finger tap now also closes the touched window, not the focused one. All 4 actions verified against a real window (maximized / special:scratchpad / restore / close). Needs physical tap pass (bar button → popup rows) |
 
 ## System facts (captured 2026-08-28)
 
@@ -36,6 +38,12 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 | `~/.config/hypr/hyprland.lua` | appended `require("hypr.tablet-experience")` | `hyprland.lua.bak.1787928342` |
 | `~/.config/hypr/tablet-experience.lua` | NEW — plugin-owned generated config (Phase 2 swipe + Phase 4 `SUPER+U` vk bind) | latest edit 2026-08-29 |
 | `~/.config/hypr/autostart.lua` | added `o.launch_on_start("omarchy-vk daemon")` (Phase 4 persistence) | `autostart.lua.bak.*` |
+| `~/.local/bin/omarchy-window` + `scripts/omarchy-window` | NEW (v0.3) — window actions `resolve|close|minimize|maximize|default` via the 0.56 Lua dispatcher API; target = last-touch window (state file) else focused | (repo archive) |
+| `~/.local/bin/omarchy-close` + `scripts/omarchy-close` | REWRITTEN (v0.3) — panels first, then `omarchy-window resolve` (last touch or focused); `--at X Y`/`--dry-run` | (repo archive) |
+| `~/.local/bin/omarchy-touch` + `scripts/omarchy-touch` | v0.3 — records **last touch on a real window** (`~/.local/state/omarchy-touch/touch-state`, skips bar/panels/VK) with raw→logical coords mirroring Hyprland's own transform math; tap2 = `omarchy-close --at` | (repo archive) |
+| `~/.local/bin/omarchy-rotate` + `scripts/omarchy-rotate` | v0.3 — ALSO sets `input:touchdevice:transform` to match the monitor (touch alignment on rotated screens was previously broken: Hyprland never recalibrates it) | (repo archive) |
+| `~/.config/omarchy/plugins/maxt.tablet-experience/manifest.json` | v0.3.0 — kinds `service, bar-widget` (panel kind REVERTED — see pivot note) | — |
+| `~/.config/omarchy/plugins/maxt.tablet-experience/BarWidget.qml` | v0.3.0 rewrite — `Panel`-based bar button + PopupCard: 窗口 section (关闭/最小化/最大化/还原默认 via `omarchy-window`) + Laptop/Tablet + rotation preset; IPC target `maxt.tablet-window` for the popup lifecycle | (repo archive) |
 | `~/.local/bin/omarchy-rotate` + `scripts/omarchy-rotate` | Phase 5 — rotation helper (transform 0/90/180/270) + OSD | (repo archive) |
 | `~/.local/bin/omarchy-orient` + `scripts/omarchy-orient` | Phase 6 — IIO accel posture probe (sysfs, zero deps) | (repo archive) |
 | `config/hypr/tablet-experience.lua` (this repo) | Phase 5 — archived copy incl. `SUPER+SHIFT+R` rotation-cycle bind | — |
@@ -127,16 +135,8 @@ relogin/restart so WirePlumber picks the UVC device up.**
 
 ## Next actions
 
-**Done this round (2026-08-29):** Wanxiang LTS gram 语言模型 installed —
-`~/.local/share/fcitx5/rime/wanxiang-lts-zh-hans.gram` (420MB, from
-`amzxyz/RIME-LMDG` release `LTS`), fcitx5 restarted, the `error opening gram
-db` journal error is gone, `rime_deployer --build` clean. No sudo needed.
-**Also done (sudo via fingerprint):** `gst-plugins-good` installed
-(`v4l2src` pipeline verified: `gst-launch-1.0 v4l2src … jpegdec` clean
-3 frames); `intel-ipu6` + `intel-ipu6-isys` UNLOADED live and blacklisted
-(`/etc/modprobe.d/blacklist-ipu6.conf`) — junk `/dev/video0–63` gone
-(68 → 4 video nodes; UVC RGB/IR still at 64–67, recaptured 1280x720 MJPG
-frames OK).
+**Done this round (2026-08-29, v0.3.0):** tablet window-manage popup live (bar button → 关闭/最小化/最大化/还原默认 + mode + rotation). Root cause found and fixed: Hyprland does NOT focus windows on touch tap (`Touch.cpp` — events go to the surface under the finger, keyboard focus stays put), so `killactive`-style closing hit the wrong window; v0.3 targets the window under the **last touch** via the daemon's state file. Also fixed: `omarchy-rotate` now syncs `input:touchdevice:transform` with the monitor (touch was mis-mapped on rotated screens). All four actions verified against a real window (maximized ↔ restored, scratchpad move, close). **Pivot note:** the floating ✕ overlay panel idea was dropped at user request — window management now lives in the top-bar widget; multi-finger gesture work is frozen (tap2 close remains as-is).
+**Earlier same day:** Wanxiang LTS gram 语言模型 installed — `~/.local/share/fcitx5/rime/wanxiang-lts-zh-hans.gram` (420MB, from `amzxyz/RIME-LMDG` release `LTS`), fcitx5 restarted, the `error opening gram db` journal error is gone, `rime_deployer --build` clean. No sudo needed. **Also done (sudo via fingerprint):** `gst-plugins-good` installed (`v4l2src` pipeline verified: `gst-launch-1.0 v4l2src … jpegdec` clean 3 frames); `intel-ipu6` + `intel-ipu6-isys` UNLOADED live and blacklisted (`/etc/modprobe.d/blacklist-ipu6.conf`) — junk `/dev/video0–63` gone (68 → 4 video nodes; UVC RGB/IR still at 64–67, recaptured 1280x720 MJPG frames OK).
 
 0. **🎯 IMPORTANT — relogin to activate: the plugin's new v0.2.0 code (auto-orient, keyboard watcher, auto-switch) only loads on a fresh omarchy-shell (hot reload doesn't swap service QML — see AUDIT).** At that point the bar button, camera (wireplumber), gestures autostart, and plugin state all come up together.
 1. **After relogin:** verify `tablet-experience Service LOADED v2` in journal; test `SUPER+SHIFT+R` rotation cycle + touch mapping; bar button left/right click; `SUPER+SHIFT+U`; menu → Tablet; then opt-in `omarchy-shell maxt.tablet-experience setAutoOrient on` + `setAutoSwitch on` (calibrate with `omarchy-orient --watch` first, then `setMode tablet`).
@@ -144,7 +144,8 @@ frames OK).
 3. **squeekboard typing + Rime** (`nihao` → candidates) — Phase 4 verification.
 4. **User device tests:** fingerprint unlock; BT pair; speaker/mic.
 5. **Optional:** ~~`gst-plugins-good`~~ ✅; ~~ipu6 blacklist~~ ✅ (68→4 video nodes); ~~Wanxiang LTS gram~~ ✅ — all done 2026-08-29.
-6. Later: **Phase 11 two-finger validation** (no login needed, daemon already live): put two fingers together on screen → tap = VK; swipe left/right = workspace; swipe down = menu. If the panel drops concurrent contacts (packet-style attribution sees one), I'll re-tune or fall back to a 2-finger-tap-only mode.
+6. **Tablet window manage — physical pass (live now, no login needed):** the bar shows a new button (laptop mode label `Laptop`, tablet mode `窗口`). Tap a window, tap the bar button → popup: 关闭/最小化/最大化/还原默认 + Laptop/Tablet + rotation. Verify close targets the window you last touched (not just the focused one); verify 2-finger tap still closes panels/windows; rotate to 180° and confirm taps still map to the right window (`omarchy-rotate` now syncs the touch device transform).
+7. Later: **Phase 11 two-finger validation** (no login needed, daemon already live): put two fingers together on screen → tap = close; swipe left/right = workspace; swipe down = menu. Gesture work is otherwise frozen — window manage is the official tablet close path now.
 
 ## Repository layout
 
@@ -155,11 +156,12 @@ omarchy-tablet-experience/
 ├── DEBUG-TOUCH-BAR.md      ← full record of the top-bar touch investigation
 ├── scripts/
 │   ├── omarchy-vk      ← gesture daemon+toggle (archived; live at ~/.local/bin)
-│   ├── omarchy-rotate  ← Phase 5/6 rotation helper (-s silent for auto-orient)
+│   ├── omarchy-rotate  ← Phase 5/6 rotation helper (-s silent for auto-orient; v0.3 syncs touch-device transform)
 │   ├── omarchy-orient  ← Phase 6 IIO accel posture probe (--watch to calibrate)
 │   ├── omarchy-kbdetect ← Phase 9 folio-keyboard USB presence (sysfs, no udev rules)
-│   ├── omarchy-touch  ← Phase 11 multi-touch gestures (tap2=close, tap3=VK, no grab)
-│   └── omarchy-close  ← close panels/overlays, else focused window (touch Esc)
+│   ├── omarchy-touch  ← Phase 11 multi-touch gestures + last-touch tracking (tap2=close, tap3=VK, no grab)
+│   ├── omarchy-close  ← close panels/overlays, else the window under the last touch (touch Esc)
+│   └── omarchy-window  ← Phase 13 window actions for the bar popup (resolve|close|minimize|maximize|default)
 ├── config/hypr/tablet-experience.lua   ← archived copy of the live hypr config
 ├── plugin-source/
 │   └── maxt.tablet-experience/  ← Phase 7–10 Quattro plugin (Service + BarWidget + manifest)

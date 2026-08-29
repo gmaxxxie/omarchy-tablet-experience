@@ -1,25 +1,32 @@
 #!/usr/bin/env python3
 """
-omarchy-touch — multi-touch gestures for the tablet experience (Phase 11).
+omarchy-touch — multi-touch gestures for the tablet experience (Phase 11+).
 
 Passive listener on the Wacom finger device (NO grab, like omarchy-vk).
 Gestures NEVER synthesise input — they only run omarchy CLI/hyprctl, so they
 cannot fight Hyprland's own handling:
 
-  2-finger tap          -> omarchy-close          (close panels / focused window)
-  3-finger tap          -> omarchy-vk toggle      (virtual keyboard)
-  2-finger swipe LEFT   -> workspace +1           (next workspace)
-  2-finger swipe RIGHT  -> workspace -1           (previous workspace)
-  2-finger swipe DOWN   -> omarchy menu (root)    (app menu)
+  2-finger tap          -> omarchy-close --at <x> <y>   (close windows / panels)
+  3-finger tap          -> omarchy-vk toggle            (virtual keyboard)
+  2-finger swipe LEFT   -> workspace +1
+  2-finger swipe RIGHT  -> workspace -1
+  2-finger swipe DOWN   -> omarchy menu (root)
 
-Protocol (verified by live capture 2026-08-29): the panel reports true
-multi-touch; the stream carries ABS_MT_SLOT (S0/S1/S2, up to 3 contacts)
-with per-slot coordinates, `S<n> T<id>` for down, `S<n> T-1` for up (some
-frames drop the S prefix — those use the last seen slot). Contacts are
-therefore keyed by SLOT. (The earlier "no SLOT events" note in omarchy-vk
-was disproven by this capture; omarchy-vk was updated too.)
+Every completed touch also records the finger position (logical screen
+coords) to $XDG_STATE_HOME/omarchy-touch/touch-state, so the visible ✕ close
+button (maxt.tablet-experience panel) closes the window the user last
+touched — Hyprland does not focus on touch tap, "focused window" is wrong.
 
-Subcommands: daemon | help
+Coordinate mapping mirrors Hyprland exactly (verified against v0.56.2
+source): the touch device applies libinput's calibration matrix
+(input:touchdevice:transform) to raw ABS coords, Hyprland then multiplies the
+normalized result by the monitor's LOGICAL size (pixel size ÷ scale, dims
+swapped for a 90/270° transform). The matrix convention (Hyprland
+InputManager.hpp MATRICES[8][6]):
+
+  t=0: (x, y)        t=1: (1 - y, x)     t=2: (1 - x, 1 - y)   t=3: (y, 1 - x)
+
+Subcommands: daemon | selftest | help
 Debug: OMARCHY_TOUCH_DEBUG=1 omarchy-touch daemon
 """
 
@@ -38,6 +45,10 @@ TAP_MAX_SPAN_MS = 1500           # all fingers up within this to count as tap
 SWIPE_THRESHOLD = 1250           # raw units of travel for a 2-finger swipe
 COOLDOWN = 1.2                   # seconds between daemon actions
 
+STATE_DIR = os.environ.get(
+    "XDG_STATE_HOME", os.path.expanduser("~/.local/state")) + "/omarchy-touch"
+TOUCH_STATE = STATE_DIR + "/touch-state"   # last-touch: "<x> <y>" + mtime
+
 DBG = os.environ.get("OMARCHY_TOUCH_DEBUG") == "1"
 
 
@@ -51,6 +62,54 @@ def run(cmd):
         subprocess.run(cmd, capture_output=True)
     except FileNotFoundError:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Raw (device) -> logical (hyprland layout) coordinate mapping
+# ---------------------------------------------------------------------------
+def raw_to_logical(rx, ry, xmin, xmax, ymin, ymax, transform, mon):
+    """Mirror Hyprland: calibration matrix on the touch device, then
+    normalized * monitor logical size + monitor position."""
+    fx = (rx - xmin) / (xmax - xmin if xmax > xmin else 1)
+    fy = (ry - ymin) / (ymax - ymin if ymax > ymin else 1)
+    if transform == 1:
+        nx, ny = 1 - fy, fx
+    elif transform == 2:
+        nx, ny = 1 - fx, 1 - fy
+    elif transform == 3:
+        nx, ny = fy, 1 - fx
+    else:
+        nx, ny = fx, fy
+    # monitor logical size (hyprctl width/height are PHYSICAL m_pixelSize)
+    w = float(mon.get("width", 0)) / float(mon.get("scale") or 1)
+    h = float(mon.get("height", 0)) / float(mon.get("scale") or 1)
+    if int(mon.get("transform") or 0) % 2 == 1:      # 90/270: dims swap
+        w, h = h, w
+    return float(mon.get("x", 0)) + nx * w, float(mon.get("y", 0)) + ny * h
+
+
+def touch_transform():
+    """input:touchdevice:transform (device-side calibration matrix index)."""
+    try:
+        out = subprocess.run(["hyprctl", "getoption", "input:touchdevice:transform", "-j"],
+                             capture_output=True, text=True, timeout=5)
+        d = __import__("json").loads(out.stdout or "{}")
+        return int(d.get("int", 0))
+    except Exception:
+        return 0
+
+
+def active_monitor():
+    """The monitor the touch device is bound to ([[Auto]] -> first live)."""
+    try:
+        out = subprocess.run(["hyprctl", "monitors", "-j"],
+                             capture_output=True, text=True, timeout=5)
+        ms = __import__("json").loads(out.stdout or "[]")
+        for m in ms:
+            return m
+        return None
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +199,7 @@ def classify(cls, first_touch_t, now):
 # Event pump: shared by the live daemon and the replay test.
 # events: iterable of (code, value) for EV_ABS codes.
 # ---------------------------------------------------------------------------
-def process_events(events, dbg=None):
+def process_events(events, dbg=None, absinfo=None):
     tr = Tracker()
     first_touch_t = None
     last_action = 0.0
@@ -163,7 +222,7 @@ def process_events(events, dbg=None):
                         last_action = now
                         actions.append(action)
                         if dbg:
-                            dbg(action)
+                            dbg(action, tr.snapshot())
                     tr.reset()
                     first_touch_t = None
         elif code == 0x35:                     # ABS_MT_POSITION_X
@@ -191,6 +250,60 @@ def find_touch_device():
     return matches[-1]
 
 
+# ---------------------------------------------------------------------------
+def touch_state_path():
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+    except OSError:
+        pass
+    return TOUCH_STATE
+
+
+def record_last_touch(lx, ly):
+    """Persist the last finger point on a real window for the bar actions."""
+    path = touch_state_path()
+    # Resolve the window under the point so the bar actions can close/min/max
+    # it even after the point becomes stale; empty means "no window here".
+    addr = ""
+    try:
+        out = subprocess.run(["omarchy-window", "resolve", "--at", f"{lx:.0f}", f"{ly:.0f}"],
+                             capture_output=True, text=True, timeout=5)
+        addr = (out.stdout or "").strip()
+    except Exception:
+        pass
+    try:
+        with open(path, "w") as f:
+            f.write(f"{lx:.1f} {ly:.1f} {addr}\n")
+    except OSError:
+        pass
+
+
+def on_layer_surface(lx, ly):
+    """True when the point lies on a layer surface (bar, panel, VK) — such
+    touches are not "last touch on a window" and must not update the state."""
+    try:
+        out = subprocess.run(["hyprctl", "layers", "-j"],
+                             capture_output=True, text=True, timeout=5)
+        d = __import__("json").loads(out.stdout or "{}")
+        for info in d.values():
+            for lvl, ls in (info.get("levels") or {}).items():
+                try:
+                    level = int(lvl)
+                except Exception:
+                    continue
+                if level < 2:
+                    continue
+                for s in ls:
+                    if s.get("x") is None or s.get("y") is None:
+                        continue
+                    if s.get("x") <= lx < s.get("x") + (s.get("w") or 0) and \
+                       s.get("y") <= ly < s.get("y") + (s.get("h") or 0):
+                        return True
+        return False
+    except Exception:
+        return False
+
+
 def daemon():
     import evdev
     from evdev import ecodes
@@ -202,10 +315,36 @@ def daemon():
     path, name, dev = found
     dlog(f"omarchy-touch: watching {path} ({name})")
 
-    def dispatch(action):
-        dlog(f"-> {action}")
+    # ABS ranges for raw -> normalized mapping
+    ax = dev.absinfo(ecodes.ABS_MT_POSITION_X) if dev.absinfo(ecodes.ABS_MT_POSITION_X) else None
+    ay = dev.absinfo(ecodes.ABS_MT_POSITION_Y) if dev.absinfo(ecodes.ABS_MT_POSITION_Y) else None
+    xmin, xmax = (ax.min, ax.max) if ax else (0, 1)
+    ymin, ymax = (ay.min, ay.max) if ay else (0, 1)
+    dlog(f"omarchy-touch: abs X {xmin}..{xmax}  Y {ymin}..{ymax}")
+
+    def dispatch(action, contacts):
+        # Action coordinates: midpoint of the gesture's finger positions.
+        if contacts:
+            cx = sum(t[3] for t in contacts) / len(contacts)
+            cy = sum(t[4] for t in contacts) / len(contacts)
+        else:
+            cx = cy = 0
+
+        lx = ly = None
+        try:
+            t = touch_transform()
+            mon = active_monitor()
+            if mon:
+                lx, ly = raw_to_logical(cx, cy, xmin, xmax, ymin, ymax, t, mon)
+        except Exception as e:
+            dlog(f"omarchy-touch: coord resolve failed: {e}")
+
         if action == "tap2":
-            run(["omarchy-close"])
+            dlog("-> tap2 close at %s %s" % (lx, ly))
+            if lx is not None and ly is not None:
+                run(["omarchy-close", "--at", f"{lx:.0f}", f"{ly:.0f}"])
+            else:
+                run(["omarchy-close"])
         elif action == "tap3":
             run(["omarchy-vk", "toggle"])
         elif action == "swipe-left":
@@ -216,9 +355,45 @@ def daemon():
             run(["omarchy-shell", "-q", "shell", "toggle", "omarchy.menu",
                  '{"menu":"root"}'])
 
+        # Any completed touch on a real window (not the bar/panels/VK)
+        # updates the last-touch target for the bar window actions.
+        if lx is not None and ly is not None and not on_layer_surface(lx, ly):
+            record_last_touch(lx, ly)
+
     process_events(
         ((e.code, e.value) for e in dev.read_loop() if e.type == ecodes.EV_ABS),
         dbg=dispatch)
+
+
+def selftest():
+    """Verify the coordinate mapper against known device/monitor combos."""
+    cases = [
+        # (rx, ry, xmin, xmax, ymin, ymax, transform, monitor, expected)
+        ((0, 0, 0, 1920, 0, 1280, 0,
+          {"x": 0, "y": 0, "width": 1920, "height": 1280, "scale": 1.6, "transform": 0},
+          (0.0, 0.0))),
+        ((1920, 1280, 0, 1920, 0, 1280, 0,
+          {"x": 0, "y": 0, "width": 1920, "height": 1280, "scale": 1.6, "transform": 0},
+          (1200.0, 800.0))),
+        # 180°: both axes flip
+        ((0, 0, 0, 1920, 0, 1280, 2,
+          {"x": 0, "y": 0, "width": 1920, "height": 1280, "scale": 1.6, "transform": 2},
+          (1200.0, 800.0))),
+        # 90°: (1-fy, fx), logical dims swap to 800x1200
+        ((0, 0, 0, 1920, 0, 1280, 1,
+          {"x": 0, "y": 0, "width": 1920, "height": 1280, "scale": 1.6, "transform": 1},
+          (0.0 + 1.0 * 800, 0.0 + 0.0 * 1200))),   # -> (800, 0.0)
+        ((1920, 1280, 0, 1920, 0, 1280, 1,
+          {"x": 0, "y": 0, "width": 1920, "height": 1280, "scale": 1.6, "transform": 1},
+          (0.0, 1200.0))),
+    ]
+    ok = True
+    for rx, ry, xmin, xmax, ymin, ymax, t, mon, exp in cases:
+        got = raw_to_logical(rx, ry, xmin, xmax, ymin, ymax, t, mon)
+        good = all(abs(a - b) < 0.001 for a, b in zip(got, exp))
+        ok = ok and good
+        print(f"{'PASS' if good else 'FAIL'} t={t} raw=({rx},{ry}) -> {got} expected {exp}")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
@@ -226,7 +401,9 @@ if __name__ == "__main__":
     if "--debug" in args:
         DBG = True
         args = [a for a in args if a != "--debug"]
-    if not args or args[0] == "daemon":
+    if args and args[0] == "selftest":
+        sys.exit(selftest())
+    elif not args or args[0] == "daemon":
         sys.exit(daemon())
     else:
         print(__doc__)

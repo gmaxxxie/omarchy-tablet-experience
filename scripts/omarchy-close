@@ -1,18 +1,46 @@
 #!/usr/bin/env bash
-# omarchy-close — close floating omarchy panels/overlays, else the focused window.
+# omarchy-close — close floating omarchy panels/overlays, else the window
+# the user touched (or the focused window as a last resort).
 #
-# Touch-first fix for the detachable keyboard problem: when the folio is off
-# there is no Esc/close button, so omarchy's floating panels (menu, audio,
-# network, hardware, reminders…) can hang around forever. This helper:
+# Tablet-mode touch-first fix: when the folio keyboard is off there is no
+# Esc/close button, so omarchy floating panels would hang around, and windows
+# without client-side decorations (foot, fullscreen apps, …) have no close
+# button at all. Hyprland does NOT focus windows on touch tap, so "close the
+# focused window" is wrong on a touchscreen — this helper instead closes the
+# window under the last finger position:
 #
 #   1. If ANY omarchy layer surface (other than bar/background) is visible,
-#      hide every panel-capable plugin id (bar-widget/panel/overlay/menu
-#      kinds). Hiding a closed panel is a no-op, so the loop is safe.
-#   2. Otherwise close the focused toplevel (hyprctl dispatch killactive).
+#      hide every panel-capable plugin id. Hiding a closed panel is a no-op.
+#   2. Otherwise close the window under the touch point:
+#        --at X Y        explicit logical-screen coordinates
+#        (no args)       last touch point recorded by omarchy-touch, if fresh
+#        (no touch)      the focused window (keyboard/laptop fallback)
 #
-# Used by: omarchy-touch 2-finger tap, and can be bound anywhere.
+# Used by: omarchy-touch 2-finger tap (passes --at), the tablet-experience
+# ✕ close button (plain call, reads the daemon's last-touch state), and any
+# keybinding.
+#
+# Options: --at X Y   close window at logical coords (hyprland layout space)
+#          --dry-run  print the resolved target instead of closing it
 
 set -eu
+
+TOUCH_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-touch/touch-state"
+STATE_FRESH_S=8
+
+AT_X=""
+AT_Y=""
+DRY_RUN=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --at) AT_X="${2:-}"; AT_Y="${3:-}"; shift 2 ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    *) shift ;;
+  esac
+done
+
+# ---------------------------------------------------------------- panels first
 
 # 1) detect open omarchy layer surfaces (level >= 2, excluding bar/background)
 OPEN="$(hyprctl layers -j 2>/dev/null | python3 -c '
@@ -53,6 +81,32 @@ sys.stdout.write(" ".join(ids))
   for id in $PLUGINS; do
     omarchy-shell -q shell hide "$id"
   done
-else
-  hyprctl dispatch killactive >/dev/null 2>&1
+  exit 0
 fi
+
+# ------------------------------------------------------------------ hit test
+
+# 2) resolve the target: explicit point > fresh last-touch > focused window.
+# (There is no focus-on-tap in Hyprland; see Touch.cpp. A stale/empty touch
+# point must NOT fall back to the focused window — that would close a window
+# the user never touched — so --at/state resolution stops when nothing is
+# under the point.)
+POINT_ARG=()
+if [ -n "$AT_X" ] && [ -n "$AT_Y" ]; then
+  POINT_ARG=(--at "$AT_X" "$AT_Y")
+elif [ -f "$TOUCH_STATE" ] && [ $(( $(date +%s) - $(stat -c %Y "$TOUCH_STATE" 2>/dev/null || echo 0) )) -le $STATE_FRESH_S ]; then
+  set -- $(head -1 "$TOUCH_STATE")
+  POINT_ARG=(--at "${1:-}" "${2:-}")
+fi
+
+TARGET="$(omarchy-window resolve "${POINT_ARG[@]:-}")"
+[ -n "$TARGET" ] || exit 0
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "$TARGET"
+  exit 0
+fi
+
+# 3) graceful close of the resolved target via the 0.56 Lua dispatcher
+#    (closewindow dispatch itself is broken through the CLI shim).
+hyprctl eval "hl.dispatch(hl.dsp.window.close({ window = 'address:${TARGET}' }))" >/dev/null 2>&1 || true
