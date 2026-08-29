@@ -26,6 +26,7 @@
 #   ./install.sh --with-ime      also install Chinese IME (fcitx5-rime + fonts)
 #   ./install.sh --with-camera   also install libcamera (UVC camera in browsers)
 #   ./install.sh --dry-run       preview only, change nothing
+#   ./install.sh --verify        post-upgrade self-check (what would break)
 # ============================================================================
 set -euo pipefail
 
@@ -36,6 +37,7 @@ DRY_RUN=0
 WITH_IME=0
 WITH_CAMERA=0
 DO_PACKAGES=1
+VERIFY=0
 
 for arg in "$@"; do
   case "$arg" in
@@ -43,7 +45,8 @@ for arg in "$@"; do
     --no-packages) DO_PACKAGES=0 ;;
     --with-ime)  WITH_IME=1 ;;
     --with-camera) WITH_CAMERA=1 ;;
-    -h|--help)   sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --verify)    VERIFY=1 ;;
+    -h|--help)   sed -n '2,42p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -51,6 +54,73 @@ done
 log()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mWARN:\033[0m %s\n' "$*" >&2; }
 run()  { if [ "$DRY_RUN" -eq 1 ]; then printf '    would run: %s\n' "$*"; else "$@"; fi }
+
+# ------------------------------------------------------------------- verify
+# Post-upgrade self-check: reports every dependency that broke after an
+# Omarchy/Hyprland update WITHOUT touching anything. Exit 1 if anything failed.
+if [ "$VERIFY" -eq 1 ]; then
+  FAIL=0
+  ok()   { printf '\033[1;32m  [ok]\033[0m  %s\n' "$*"; }
+  bad()  { printf '\033[1;31m  [FAIL]\033[0m %s\n' "$*"; FAIL=1; }
+  echo "== tablet-experience --verify (read-only) =="
+
+  # scripts present and matching the repo copy
+  for src in "$REPO_ROOT"/scripts/omarchy-*; do
+    [ -f "$src" ] || continue
+    name="$(basename "$src")"
+    if [ -x "$BIN_DIR/$name" ] && cmp -s "$src" "$BIN_DIR/$name"; then
+      ok "$name in $BIN_DIR (matches repo)"
+    elif [ -x "$BIN_DIR/$name" ]; then
+      bad "$name differs from repo — re-run install.sh"
+    else
+      bad "$name missing — re-run install.sh"
+    fi
+  done
+
+  # hypr hooks
+  grep -qF 'require("hypr.tablet-experience")' "$HYPR_DIR/hyprland.lua" 2>/dev/null \
+    && ok "hyprland.lua: require hook present" \
+    || bad "hyprland.lua: missing require hook — re-run install.sh"
+  [ -f "$HYPR_DIR/tablet-experience.lua" ] \
+    && ok "$HYPR_DIR/tablet-experience.lua present" \
+    || bad "hypr config missing — re-run install.sh"
+  grep -qF 'o.launch_on_start("omarchy-vk daemon")' "$HYPR_DIR/autostart.lua" 2>/dev/null \
+    && ok "autostart: omarchy-vk daemon hook" \
+    || bad "autostart: omarchy-vk hook missing — re-run install.sh"
+  grep -qF 'o.launch_on_start("omarchy-touch daemon")' "$HYPR_DIR/autostart.lua" 2>/dev/null \
+    && ok "autostart: omarchy-touch daemon hook" \
+    || bad "autostart: omarchy-touch hook missing — re-run install.sh"
+
+  # plugin enabled by omarchy
+  if omarchy plugin list --json 2>/dev/null | grep -q '"maxt.tablet-experience"'; then
+    ok "plugin enabled in omarchy"
+  else
+    bad "plugin not enabled — omarchy plugin enable maxt.tablet-experience"
+  fi
+
+  # keybinds actually registered in the live Hyprland session
+  if command -v hyprctl >/dev/null && hyprctl binds -j >/dev/null 2>&1; then
+    BINDS="$(hyprctl binds -j 2>/dev/null)"
+    for desc in 'Toggle virtual keyboard' 'Toggle Laptop/Tablet mode' 'Rotate screen'; do
+      echo "$BINDS" | grep -qF "$desc" \
+        && ok "keybind live: $desc" \
+        || bad "keybind missing: $desc (config not loaded — check hyprland.lua)"
+    done
+  else
+    warn "hyprctl unavailable — skip live keybind check (session not running?)"
+  fi
+
+  # daemons running
+  pgrep -f "$BIN_DIR/omarchy-touch daemon" >/dev/null 2>&1 \
+    && ok "omarchy-touch daemon running" || warn "omarchy-touch daemon not running (starts at next login)"
+  pgrep -f "$BIN_DIR/omarchy-vk daemon" >/dev/null 2>&1 \
+    && ok "omarchy-vk daemon running" || warn "omarchy-vk daemon not running (starts at next login)"
+
+  if [ "$FAIL" -eq 1 ]; then
+    echo; echo "FAILURES FOUND — re-run: $0   (or --no-packages --dry-run to preview)"; exit 1
+  fi
+  echo; echo "ALL CHECKS PASSED — the plugin is intact after this upgrade."; exit 0
+fi
 
 # Backup a file ONLY when we are about to change it and no identical backup
 # exists yet (prevents backup spam on repeated installs).

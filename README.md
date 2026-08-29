@@ -30,6 +30,34 @@ Uninstall: `uninstall.sh` (system side) + `omarchy plugin remove maxt.tablet-exp
 
 ![Tablet-mode window-manage popup](preview.png)
 
+### Upgrade compatibility (Omarchy / Hyprland updates)
+
+- **The plugin never modifies Omarchy's package files** (`/usr/share/omarchy` —
+  verified `pacman -Qkk omarchy` → 0 altered). All changes live in the user
+  config area and official extension points: `plugins/`, `Extensions` menu
+  jsonc, `autostart.lua` (`o.launch_on_start`), and a 1-line `require` in
+  `hyprland.lua`. Package upgrades never silently overwrite those; worst
+  case new defaults arrive as `.pacnew` files and the hooks go missing
+  (visible, not destructive).
+- **After any system upgrade, self-check with:**
+
+  ```sh
+  ~/.config/omarchy/plugins/maxt.tablet-experience/install.sh --verify
+  ```
+
+  It checks the 8 helper scripts, the hypr hooks, plugin enabled state,
+  live keybinds and running daemons — read-only, exits 1 on anything broken.
+  Recovery is always the same idempotent re-run: `install.sh`.
+- **Platform API dependencies** (outside our control, affect every plugin):
+  Hyprland's Lua runtime API (`hyprctl eval "hl.monitor(...)"` etc.),
+  Quickshell/QML APIs, and the `omarchy-shell` / `omarchy-osd` / `omarchy plugin`
+  CLI contracts used by scripts and hooks.
+- **Known risk, tracked:** the helper binaries borrow the `omarchy-*`
+  namespacing (`omarchy-vk`, `omarchy-rotate`, …) even though they are ours
+  in `~/.local/bin`. A future official binary of the same name would shadow
+  them (PATH order). Mitigation is a rename (`texp-*`) if that ever becomes
+  a real conflict.
+
 ## Status board
 
 | Phase | Feature | Status |
