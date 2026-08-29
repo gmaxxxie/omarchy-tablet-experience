@@ -28,6 +28,8 @@ Options: `--no-packages` · `--with-ime` (fcitx5-rime + CJK fonts) · `--with-ca
 
 Uninstall: `uninstall.sh` (system side) + `omarchy plugin remove maxt.tablet-experience`.
 
+![Tablet-mode window-manage popup](preview.png)
+
 ## Status board
 
 | Phase | Feature | Status |
