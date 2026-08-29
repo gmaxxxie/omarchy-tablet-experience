@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "maxt.tablet-experience",
   "name": "Tablet Experience",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "maxt",
   "license": "MIT",
   "description": "Laptop/Tablet state machine for the ThinkPad X12 (rotation + virtual keyboard helpers)",

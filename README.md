@@ -14,7 +14,7 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 | 2 | Native workspace swipe | ✅ edge-swipe verified working (user-tested), `gestures:workspace_swipe_touch=true` |
 | 3 | Input method (Chinese) | ✅ fcitx5 + Rime + Wanxiang installed & deployed (see below) |
 | 4 | Virtual keyboard | 🟡 squeekboard (extra) core path **working**: D-Bus toggle ✓, bottom-edge up-swipe show ✓ (user-tested), `SUPER+U` bind ✓; pending autostart + touch/Chinese input verification |
-| 5–11 | rotation / state / UI / auto-switch | 🟡 P5 ✅ rotation script+binds · P7/8 ✅ mode state machine + bar widget + menu + `SUPER+SHIFT+U` · P6/9/10 ⏳ |
+| 5–11 | rotation / state / UI / auto-switch | 🟡 P5 ✅ · P7/8 ✅ · P6/9/10 wired on disk (auto-orient + kb watcher + auto-switch, opt-in) ⏳ activate at next login |
 | 12 | **Hardware full bring-up (esp. camera)** | 🟡 camera **verified via UVC** (RGB MJPG + IR, see `PHASE12-HARDWARE.md`); IPU6 CSI confirmed dead end. libcamera now installed → browser test pending relogin. Fingerprint enrolled+live, BT scan verified, audio sinks/sources present |
 
 ## System facts (captured 2026-08-28)
@@ -61,19 +61,36 @@ IIO accel_3d live (g=(−0.35,−6.61,−8.21), dominant −z ⇒ `normal`). Pro
 `omarchy-orient` (sysfs; `--watch` to calibrate) classifies postures. Next:
 wiring orientation→transform through the state machine (Phase 7 service hook).
 
-**Phases 7+8 — Laptop/Tablet state machine + Omarchy plugin (done, live):**
-plugin `maxt.tablet-experience` (`service`+`bar-widget`) at
-`~/.config/omarchy/plugins/` (archived `plugin-source/`):
+**Phases 7+8 — Laptop/Tablet state machine + Omarchy plugin (done, live):** plugin v0.2.0
+(on disk; **Phase 6 auto-orientation + Phase 9 keyboard watcher + Phase 10
+auto-switch wiring included but pending activation — see the hot-reload note
+below**):
 - **Service.qml** — persistent mode (`PersistentProperties reloadableId`,
   `laptop|tablet` + `tabletRotation` preset off/0°/180°), idempotent apply
   (OSD + optional rotate on enter-tablet), Charm IPC:
   `omarchy-shell maxt.tablet-experience {getState|getMode|toggle|setMode|setRotation}`
+- **v0.2.0 additions (phase 6/9/10):** `autoOrient` (opt-in; polls
+  `net.hadess.SensorProxy.AccelerometerOrientation` via busctl every 1.5s,
+  applies normal→0°/left-up→90°/bottom-up→180°/right-up→270° silently,
+  tablet-mode only), `autoSwitchMode` (opt-in; USB 17ef:60fe attach/detach
+  via `omarchy-kbdetect` → laptop/tablet), IPC
+  `setAutoOrient`/`setAutoSwitch`, extended getState. Boot marker log line on
+  activation: `tablet-experience Service LOADED v2`.
 - **BarWidget.qml** — mode button (left=toggle, right=rotation-preset ring);
   nerd glyphs verified in JetBrainsMono Nerd Font
 - Menu rows `tablet.*` in `~/.config/omarchy/extensions/omarchy-menu.jsonc`
 - Bind `SUPER+SHIFT+U` → toggle (`SUPER+T` and friends already taken)
-- Enabled `--section right`; full IPC roundtrip tested, zero shell errors;
-  persistence survives shell reloads by design (same as omarchy.battery)
+- Enabled `--section right`; IPC verified live for phase 7/8 methods; phase
+  6/9/10 methods verified by offline `quickshell -p` load (parses +
+  instantiates cleanly).
+
+**PLATFORM FINDING (recorded):** Omarchy service-plugin QML hot-reload does
+NOT swap service code — the component is cached per URL; disable→enable and
+`shell rescanPlugins` keep serving the ORIGINAL instance (verified: new IPC
+methods absent, boot `console.log` missing after multiple reload cycles). New
+plugin code applies only on a full omarchy-shell restart (next login).
+`omarchy-shell` CLI itself is unaffected. This also means: keep the plugin
+stable between logins; verify changes after a relogin.
 
 **Hardware (Phase 12):** camera output verified — device is a USB camera bridge
 with two UVC functions: `/dev/video64` RGB (MJPG 2592x1944 max) and
@@ -93,13 +110,13 @@ relogin/restart so WirePlumber picks the UVC device up.**
 
 ## Next actions
 
-1. **Phase 5+8 user verification (physical):** rotate via `SUPER+CTRL+1/2/3/0` and confirm touch/pen mapping per orientation; watch the new bar button → left-click toggles Laptop/Tablet (OSD), right-click cycles the rotation preset; `SUPER+SHIFT+U` toggles too; menu → Tablet submenu.
-2. **Relogin, then browser camera test:** libcamera is installed — after next relogin test webcamtests.com in Chromium. Then iio-sensor-proxy wiring (Phase 6): `monitor-sensor` calibration → optional auto-orientation hook into the service.
-3. **Verify input through squeekboard:** touch a key in a foot/editor/browser — confirms Wayland key injection; then fcitx5 Rime pinyin via VK (Ctrl+Space, type `nihao` → candidates).
-4. **User device tests:** unlock via fingerprint; pair a BT device; speaker/mic playback+record.
-5. **Gesture daemon autostart persisted** (`autostart.lua` — takes effect next login; current daemon already running). Confirm gesture feel on next login.
-6. Optional cleanups: blacklist `intel-ipu6` modules (remove 64 junk video nodes), `gst-plugins-good` for gst pipelines.
-7. Later phases: 6 auto-orientation (after install), 9 udev keyboard watcher → 10 auto-switch (opt-in), 11 gestures, 12 remaining device tests.
+0. **🎯 IMPORTANT — relogin to activate: the plugin's new v0.2.0 code (auto-orient, keyboard watcher, auto-switch) only loads on a fresh omarchy-shell (hot reload doesn't swap service QML — see AUDIT).** At that point the bar button, camera (wireplumber), gestures autostart, and plugin state all come up together.
+1. **After relogin:** verify `tablet-experience Service LOADED v2` in journal; test `SUPER+CTRL+1/2/3/0` rotation + touch mapping; bar button left/right click; `SUPER+SHIFT+U`; menu → Tablet; then opt-in `omarchy-shell maxt.tablet-experience setAutoOrient on` + `setAutoSwitch on` (calibrate with `omarchy-orient --watch` first, then `setMode tablet`).
+2. **Camera:** webcamtests.com in Chromium (libcamera now present after relogin).
+3. **squeekboard typing + Rime** (`nihao` → candidates) — Phase 4 verification.
+4. **User device tests:** fingerprint unlock; BT pair; speaker/mic.
+5. **Optional:** `gst-plugins-good` for gst pipelines; blacklist `intel-ipu6` modules to drop 64 junk /dev/video nodes; download Wanxiang LTS `gram` db to silence fcitx5 warning + better prediction.
+6. Later: 11 gestures, plugin polish (OSD mode glyphs, panel), auto-switch tuning.
 
 ## Repository layout
 
@@ -110,10 +127,11 @@ omarchy-tablet-experience/
 ├── DEBUG-TOUCH-BAR.md      ← full record of the top-bar touch investigation
 ├── scripts/
 │   ├── omarchy-vk      ← gesture daemon+toggle (archived; live at ~/.local/bin)
-│   ├── omarchy-rotate  ← Phase 5 rotation helper (0/90/180/270 + OSD)
-│   └── omarchy-orient  ← Phase 6 IIO accel posture probe (--watch to calibrate)
+│   ├── omarchy-rotate  ← Phase 5/6 rotation helper (-s silent for auto-orient)
+│   ├── omarchy-orient  ← Phase 6 IIO accel posture probe (--watch to calibrate)
+│   └── omarchy-kbdetect ← Phase 9 folio-keyboard USB presence (sysfs, no udev rules)
 ├── config/hypr/tablet-experience.lua   ← archived copy of the live hypr config
 ├── plugin-source/
-│   └── maxt.tablet-experience/  ← Phase 7/8 Quattro plugin (Service + BarWidget + manifest)
+│   └── maxt.tablet-experience/  ← Phase 7–10 Quattro plugin (Service + BarWidget + manifest)
 └── (later) panel extras, udev watcher, auto-switch
 ```

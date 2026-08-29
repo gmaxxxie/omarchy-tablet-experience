@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# omarchy-kbdetect — report whether the X12 folio keyboard is attached.
+#
+# The detachable keyboard enumerates on USB as Lenovo 17ef:60fe, so attach/
+# detach shows up as USB plug/unplug (Phase 0 finding). Prints "attached" or
+# "detached"; exit 0 in both cases so the caller only parses stdout.
+#
+# Used by the tablet-experience service (Phase 9) to auto-switch modes.
+# Deliberately sysfs-only: no udev rules, no new packages.
+
+VENDOR="17ef"
+PRODUCT="60fe"
+
+for dev in /sys/bus/usb/devices/*; do
+  [ -r "$dev/idVendor" ] || continue
+  v="$(cat "$dev/idVendor" 2>/dev/null)"
+  [ "$v" = "$VENDOR" ] || continue
+  p="$(cat "$dev/idProduct" 2>/dev/null)"
+  if [ "$p" = "$PRODUCT" ]; then
+    echo "attached"
+    exit 0
+  fi
+done
+
+echo "detached"

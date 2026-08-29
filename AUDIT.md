@@ -243,6 +243,35 @@ archived `plugin-source/`): `service` + `bar-widget` kinds.
   Auto-reload on file change confirmed (shell "Local plugin changed,
   reloading" debug lines).
 
+### 2026-08-29 (late) — Phases 6/9/10 wiring + platform hot-reload finding
+
+- **iio-sensor-proxy verified** (installed by user): `monitor-sensor` sees
+  the accel, `Orientation changed: normal` events live; D-Bus property
+  `net.hadess.SensorProxy.AccelerometerOrientation` readable via
+  `busctl --system get-property` → `s "normal"`.
+- **Service qml v0.2.0**: `autoOrient` opt-in (1.5s busctl poll only while
+  enabled; mapping normal/left-up/bottom-up/right-up → transform 0/1/2/3,
+  silent apply, tablet-mode gated, needs one physical calibration pass via
+  `omarchy-orient --watch`), `autoSwitchMode` opt-in, extended IPC
+  (`setAutoOrient`, `setAutoSwitch`), boot marker `console.log("tablet-
+  experience Service LOADED v2")`.
+- **omarchy-kbdetect** (sysfs, no udev rules, no deps): reports
+  attached/detached for USB 17ef:60fe — live test: `attached` ✓.
+- **omarchy-rotate -s**: silent flag for auto-applies (no OSD spam).
+- **PLATFORM FINDING**: Omarchy/Quickshell service-plugin hot reload does
+  NOT swap QML service code (component cached per URL): `omarchy plugin
+  disable`→`enable`, `shell rescanPlugins`, and local-file watcher reloads
+  all keep the original instance — verified by (a) new IPC method
+  `setAutoOrient` = "Function not found", (b) new boot console.log never
+  appearing across cycles, (c) no load errors in journal/qslog. New plugin
+  code only activates on a full omarchy-shell restart (next login). Offline
+  validation path that DOES work: `quickshell -p <Service.qml>` (parsed +
+  instantiated cleanly, `Configuration Loaded`).
+- **IME note**: fcitx5 logs repeated `error opening gram db
+  wanxiang-lts-zh-hans.gram` — the Wanxiang LTS language-model gram file is
+  NOT shipped in the deployment (needs separate download from wanxiang
+  GitHub releases; large). TODO, non-blocking for pinyin typing.
+
 Cleared by controlled experiments: `gestures:workspace_swipe_touch` (off → no change), fcitx5 (fully stopped → no change), touch device hardware (raw coords verified correct), fonts/Rime.
 
 Evidence: `hyprctl layers` shows only `omarchy-bar 0 0 1200 30` at top, no overlay; no occlusion. Hyprland 0.56.2 source + Quickshell source review says the bar should be hittable (Quickshell never sets empty input regions). Root cause not found yet.
