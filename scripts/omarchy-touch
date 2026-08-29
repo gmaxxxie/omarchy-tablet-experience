@@ -304,6 +304,23 @@ def on_layer_surface(lx, ly):
         return False
 
 
+def focus_at(lx, ly):
+    """Focus the VISIBLE window under the point (touch never focuses in
+    Hyprland — Touch.cpp routes the event but keeps keyboard focus, which is
+    instantly noticeable in the scrolling layout where windows sit off-view;
+    this restores desktop-style "tap to focus"). Swipe/tap gestures keep
+    working because we only ADD a focus dispatch, never touch input."""
+    try:
+        out = subprocess.run(["omarchy-window", "resolve", "--at", f"{lx:.0f}", f"{ly:.0f}"],
+                             capture_output=True, text=True, timeout=5)
+        addr = (out.stdout or "").strip()
+    except Exception:
+        return
+    if addr:
+        run(["hyprctl", "eval", f"hl.dispatch(hl.dsp.focus({{ window = 'address:{addr}' }}))"])
+        dlog(f"focus -> {addr}")
+
+
 def daemon():
     import evdev
     from evdev import ecodes
@@ -338,6 +355,12 @@ def daemon():
                 lx, ly = raw_to_logical(cx, cy, xmin, xmax, ymin, ymax, t, mon)
         except Exception as e:
             dlog(f"omarchy-touch: coord resolve failed: {e}")
+
+        # Touch never focuses in Hyprland; a single-finger tap focuses the
+        # visible window under the finger (workspace swipe/multi-finger
+        # gestures keep running their own dispatch below).
+        if lx is not None and ly is not None and contacts and len(contacts) == 1:
+            focus_at(lx, ly)
 
         if action == "tap2":
             dlog("-> tap2 close at %s %s" % (lx, ly))

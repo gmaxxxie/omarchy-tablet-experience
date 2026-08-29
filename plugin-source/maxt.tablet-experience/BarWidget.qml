@@ -4,20 +4,17 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// Tablet Experience — bar widget (v0.4): tablet-only window-manage popup.
+// Tablet Experience — bar widget (v0.5): always-mounted window-manage popup.
 //
-// The bar button and all window-management entries ONLY appear while the
-// machine is in Tablet mode (laptop mode keeps the bar clean; the mode can
-// still be switched from inside the popup, SUPER+SHIFT+U, or the menu).
+// The button is always visible so there is always an entry point: laptop
+// mode shows the mode label and the popup only offers Laptop/Tablet +
+// rotation; tablet mode switches the label to 窗口 and unlocks the
+// window-manage section (close / move-to-workspace / layout switch).
 //
-// Popup actions (touch-first; target = window under the last touch, because
-// Hyprland does not focus windows on touch tap):
-//   ✕ 关闭窗口            omarchy-window close
-//   ➜ 移动到工作区 N      omarchy-window move N        (grid 1..10)
-//   Dwindle / Scrolling   omarchy-window layout <mode> (active workspace,
-//                         persisted like omarchy's own SUPER+L toggle)
-//   Laptop / Tablet       mode switch (same as before)
-//   旋转预设               rotation preset cycle
+// Window targets are touch-first (Hyprland does not focus on touch tap):
+// each action targets the window under the LAST TOUCH, recorded by the
+// omarchy-touch daemon; single-finger taps also focus the tapped window
+// now (also omarchy-touch), which scrolling-layout windows need.
 
 Panel {
   id: root
@@ -50,9 +47,6 @@ Panel {
 
   Process { id: actProc }
 
-  // --------- the button + popup are tablet-mode only
-  visible: root.tablet
-
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
@@ -60,10 +54,11 @@ Panel {
     id: button
     anchors.centerIn: parent
     bar: root.bar
-    text: "窗口"
-    active: root.opened
-    useActiveColor: true
-    tooltipText: "Window manage: close / move workspace / layout"
+    text: root.tablet ? "窗口" : "Laptop"
+    active: root.opened || root.tablet
+    tooltipText: root.tablet
+      ? "Window manage: close / move workspace / layout"
+      : "Laptop mode — open for Tablet mode"
 
     onPressed: function(btn) {
       if (btn === Qt.RightButton && root.service) root.service.cycleRotationPreset()
@@ -87,71 +82,78 @@ Panel {
       anchors.margins: Style.spacing.popupPadding
       spacing: Style.spacing.sm
 
-      PanelSectionHeader {
-        text: "窗口 — Window"
-      }
-
-      Button {
-        height: Style.space(40)
-        iconText: "✕"
-        text: "关闭窗口"
-        onClicked: { root.runAction(["omarchy-window", "close"]); root.close() }
-      }
-
-      Button {
-        height: Style.space(40)
-        iconText: "➜"
-        text: "移动到工作区"
-        onClicked: { root.showMoveGrid = !root.showMoveGrid }
-      }
-
-      // 2x5 grid of workspace targets; the current workspace is highlighted.
-      Grid {
-        id: wsGrid
-        visible: root.showMoveGrid
-        width: parent.width
-        columns: 5
-        rowSpacing: Style.spacing.sm
-        columnSpacing: Style.spacing.sm
-
-        Repeater {
-          model: 10
-          delegate: Button {
-            width: (wsGrid.width - wsGrid.columnSpacing * (wsGrid.columns - 1)) / wsGrid.columns
-            height: Style.space(32)
-            text: String(index + 1)
-            active: root.wsId === index + 1
-            onClicked: {
-              root.runAction(["omarchy-window", "move", String(index + 1)])
-              root.close()
-            }
-          }
-        }
-      }
-
-      PanelSeparator { }
-
-      PanelSectionHeader {
-        text: "布局 · 工作区 " + root.wsId + (root.wsLayout === "scrolling" ? " (scrolling)" : "")
-      }
-
-      Row {
+      // ---------- window manage section: tablet mode only
+      Column {
+        visible: root.tablet
         width: parent.width
         spacing: Style.spacing.sm
 
-        Button {
-          width: (parent.width - parent.spacing) / 2
-          height: Style.space(40)
-          text: "Dwindle"
-          active: root.wsLayout === "dwindle"
-          onClicked: { root.runAction(["omarchy-window", "layout", "dwindle"]) }
+        PanelSectionHeader {
+          text: "窗口 — Window"
         }
+
         Button {
-          width: (parent.width - parent.spacing) / 2
           height: Style.space(40)
-          text: "Scrolling"
-          active: root.wsLayout === "scrolling"
-          onClicked: { root.runAction(["omarchy-window", "layout", "scrolling"]) }
+          iconText: "✕"
+          text: "关闭窗口"
+          onClicked: { root.runAction(["omarchy-window", "close"]); root.close() }
+        }
+
+        Button {
+          height: Style.space(40)
+          iconText: "➜"
+          text: "移动到工作区"
+          onClicked: { root.showMoveGrid = !root.showMoveGrid }
+        }
+
+        // 2x5 grid of workspace targets; the current workspace is highlighted.
+        Grid {
+          id: wsGrid
+          visible: root.showMoveGrid
+          width: parent.width
+          columns: 5
+          rowSpacing: Style.spacing.sm
+          columnSpacing: Style.spacing.sm
+
+          Repeater {
+            model: 10
+            delegate: Button {
+              width: (wsGrid.width - wsGrid.columnSpacing * (wsGrid.columns - 1)) / wsGrid.columns
+              height: Style.space(32)
+              text: String(index + 1)
+              active: root.wsId === index + 1
+              onClicked: {
+                root.runAction(["omarchy-window", "move", String(index + 1)])
+                root.close()
+              }
+            }
+          }
+        }
+
+        PanelSeparator { }
+
+        PanelSectionHeader {
+          text: "布局 · 工作区 " + root.wsId + (root.wsLayout === "scrolling" ? " (scrolling)" : "")
+        }
+
+        Row {
+          width: parent.width
+          spacing: Style.spacing.sm
+
+          Button {
+            width: (parent.width - parent.spacing) / 2
+            height: Style.space(40)
+            text: "Dwindle"
+            active: root.wsLayout === "dwindle"
+            onClicked: { root.runAction(["omarchy-window", "layout", "dwindle"]) }
+          }
+          Button {
+            width: (parent.width - parent.spacing) / 2
+            height: Style.space(40)
+            text: "Scrolling"
+            active: root.wsLayout === "scrolling"
+            onClicked: { root.runAction(["omarchy-window", "layout", "scrolling"]) }
+          }
         }
       }
 
@@ -170,7 +172,7 @@ Panel {
           height: Style.space(40)
           text: "Laptop"
           active: !root.tablet
-          onClicked: { if (root.service) { root.service.setMode("laptop") } }
+          onClicked: { if (root.service) root.service.setMode("laptop") }
         }
         Button {
           width: (parent.width - parent.spacing) / 2
@@ -213,11 +215,13 @@ Panel {
   Timer {
     id: pollTimer
     interval: 1500
-    running: root.visible && root.opened
+    running: root.opened
     repeat: true
     triggeredOnStart: true
     onTriggered: {
       if (!wsProbe.running) wsProbe.running = true
     }
   }
+
+  Component.onCompleted: console.log("MAXT-WIDGET-ONLINE v0.5 mode=" + (root.tablet ? "tablet" : "laptop"))
 }
