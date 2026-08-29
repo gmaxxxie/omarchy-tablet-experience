@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# omarchy-close — close floating omarchy panels/overlays, else the focused window.
+#
+# Touch-first fix for the detachable keyboard problem: when the folio is off
+# there is no Esc/close button, so omarchy's floating panels (menu, audio,
+# network, hardware, reminders…) can hang around forever. This helper:
+#
+#   1. If ANY omarchy layer surface (other than bar/background) is visible,
+#      hide every panel-capable plugin id (bar-widget/panel/overlay/menu
+#      kinds). Hiding a closed panel is a no-op, so the loop is safe.
+#   2. Otherwise close the focused toplevel (hyprctl dispatch killactive).
+#
+# Used by: omarchy-touch 2-finger tap, and can be bound anywhere.
+
+set -eu
+
+# 1) detect open omarchy layer surfaces (level >= 2, excluding bar/background)
+OPEN="$(hyprctl layers -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+found = []
+for mon, info in d.items():
+    for lvl, ls in info.get("levels", {}).items():
+        try:
+            level = int(lvl)
+        except Exception:
+            continue
+        if level < 2:
+            continue
+        for l in ls:
+            ns = l.get("namespace", "") or ""
+            if ns.startswith("omarchy-") and ns not in ("omarchy-bar", "omarchy-background"):
+                found.append(ns)
+sys.stdout.write(" ".join(sorted(set(found))))
+' 2>/dev/null)"
+
+if [ -n "$OPEN" ]; then
+  # 2) hide every panel-capable plugin (idempotent for already-closed ones)
+  PLUGINS="$(omarchy plugin list --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+kinds = {"bar-widget", "panel", "overlay", "menu"}
+ids = [p.get("id") for p in d
+       if p.get("enabled") and kinds.intersection(set(p.get("kinds") or []))]
+sys.stdout.write(" ".join(ids))
+' 2>/dev/null)"
+  for id in $PLUGINS; do
+    omarchy-shell -q shell hide "$id"
+  done
+else
+  hyprctl dispatch killactive >/dev/null 2>&1
+fi

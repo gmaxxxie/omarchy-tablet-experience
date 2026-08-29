@@ -156,7 +156,8 @@ omarchy-tablet-experience/
 │   ├── omarchy-rotate  ← Phase 5/6 rotation helper (-s silent for auto-orient)
 │   ├── omarchy-orient  ← Phase 6 IIO accel posture probe (--watch to calibrate)
 │   ├── omarchy-kbdetect ← Phase 9 folio-keyboard USB presence (sysfs, no udev rules)
-│   └── omarchy-touch  ← Phase 11 multi-touch gestures (2-finger tap/swipe, no grab)
+│   ├── omarchy-touch  ← Phase 11 multi-touch gestures (tap2=close, tap3=VK, no grab)
+│   └── omarchy-close  ← close panels/overlays, else focused window (touch Esc)
 ├── config/hypr/tablet-experience.lua   ← archived copy of the live hypr config
 ├── plugin-source/
 │   └── maxt.tablet-experience/  ← Phase 7–10 Quattro plugin (Service + BarWidget + manifest)

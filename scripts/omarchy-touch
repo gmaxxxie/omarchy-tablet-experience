@@ -6,10 +6,15 @@ Passive listener on the Wacom finger device (NO grab, like omarchy-vk).
 Gestures NEVER synthesise input — they only run omarchy CLI/hyprctl, so they
 cannot fight Hyprland's own handling:
 
-  2-finger tap          -> omarchy-vk toggle        (virtual keyboard)
-  2-finger swipe LEFT   -> workspace +1             (next workspace)
-  2-finger swipe RIGHT  -> workspace -1             (previous workspace)
-  2-finger swipe DOWN   -> omarchy menu (root)      (app menu)
+  2-finger tap          -> omarchy-close          (close panels / focused window)
+  3-finger tap          -> omarchy-vk toggle      (virtual keyboard)
+  2-finger swipe LEFT   -> workspace +1           (next workspace)
+  2-finger swipe RIGHT  -> workspace -1           (previous workspace)
+  2-finger swipe DOWN   -> omarchy menu (root)    (app menu)
+
+`omarchy-close` is the touch counterpart of Esc/close: it hides every open
+omarchy panel/overlay, or closes the focused app window when none are open —
+fixing the keyboard-detached "unclosable omarchy windows" problem.
 
 Protocol note: this panel reports ABS_MT_TRACKING_ID **without** ABS_MT_SLOT
 (10 contacts declared on the slot axis but the driver never sends SLOT
@@ -33,9 +38,9 @@ import time
 # Configuration
 # ---------------------------------------------------------------------------
 TOUCH_NAME_KEYS = ("wacom", "finger")
-TWO_FINGER_GAP_MS = 400          # 2nd finger must land within this of 1st
+TWO_FINGER_GAP_MS = 700          # 2nd finger must land within this of 1st
 TAP_MAX_MOVE = 220               # raw units a finger may wander and still be a tap
-TAP_MAX_SPAN_MS = 900            # both fingers up within this to count as tap
+TAP_MAX_SPAN_MS = 1500            # both fingers up within this to count as tap
 SWIPE_THRESHOLD = 1250           # raw units of travel for a 2-finger swipe
 COOLDOWN = 1.2                   # seconds between daemon actions
 
@@ -123,7 +128,7 @@ def classify(tr, first_touch_t, now):
     moved = max(max(abs(t[3] - t[1]) if t[3] is not None else 0,
                     abs(t[4] - t[2]) if t[4] is not None else 0) for t in valid)
     if moved <= TAP_MAX_MOVE:
-        return "tap2"
+        return "tap3" if len(valid) >= 3 else "tap2"
     dx = sum(t[3] - t[1] for t in valid)
     dy = sum(t[4] - t[2] for t in valid)
     if abs(dx) >= abs(dy) and abs(dx) >= SWIPE_THRESHOLD:
@@ -176,6 +181,8 @@ def daemon():
                         last_action = now
                         dlog(f"-> {action}")
                         if action == "tap2":
+                            run(["omarchy-close"])
+                        elif action == "tap3":
                             run(["omarchy-vk", "toggle"])
                         elif action == "swipe-left":
                             run(["hyprctl", "dispatch", "workspace", "+1"])

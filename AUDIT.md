@@ -325,11 +325,19 @@ audostarted): passive (NO grab), gestures only drive CLI/hyprctl:
 unit-tested with 10 synthetic cases (all PASS, incl. direction semantics,
 tap tolerance, single-finger/hold-time/incomplete-coord rejection). Daemon
 launched live (single instance verified) and added to `autostart.lua`.
-**Pending: physical two-finger validation** — two 25–40s capture windows
-got zero touches (nobody at the panel); the packaging/parse model is
-confident but concurrent-contact accuracy needs one real pass (single
-`OMARCHY_TOUCH_DEBUG=1` run while touching two fingers). If the panel
-cannot report two contacts simultaneously, fall back to tap-only.
+**User round (2026-08-29):** #1 the bar-mode logo looked wrong — root
+cause: hot-reload quirk kept the OLD BarWidget (wrong glyph codepoints
+U+F05F0/U+F03E2) loaded; a shell restart brought up v0.2.0 — `Service
+LOADED v2` logged, correct nerd glyphs (U+F03FF tablet / U+F0322 laptop)
+live, new IPC fully working (getState incl. autoOrient/autoSwitch/kbAttached,
+setAutoOrient tested). #2 keyboard-detached close: new `omarchy-close`
+(masksomakis: hides every open omarchy panel-capable plugin via layers-+
+list scan, else `hyprctl dispatch killactive`; menu-open→close verified);
+gesture map now tap2=close, tap3=VK, menu row `tablet.close` added. #3
+multi-touch: live capture windows got zero device events (user not at
+panel during runs) — gaps relaxed (700/1500ms); user self-test command
+provided; if the panel proves single-contact, drop to single-finger
+chorded gestures (long-press rejected: apps own it).
 
 Cleared by controlled experiments: `gestures:workspace_swipe_touch` (off → no change), fcitx5 (fully stopped → no change), touch device hardware (raw coords verified correct), fonts/Rime.
 
