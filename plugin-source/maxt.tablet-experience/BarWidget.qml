@@ -54,7 +54,7 @@ Panel {
     id: button
     anchors.centerIn: parent
     bar: root.bar
-    text: root.tablet ? "\uF108" : "\uF109"   // fa-tablet / fa-laptop (verified in JetBrainsMono Nerd Font)
+    text: root.tablet ? "\uF10A" : "\uF109"   // fa-tablet(竖平板) / fa-laptop (both verified present)
     active: root.opened || root.tablet
     tooltipText: root.tablet
       ? "Window manage: close / move workspace / layout"
