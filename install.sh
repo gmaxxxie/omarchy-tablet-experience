@@ -65,7 +65,7 @@ if [ "$VERIFY" -eq 1 ]; then
   echo "== tablet-experience --verify (read-only) =="
 
   # scripts present and matching the repo copy
-  for src in "$REPO_ROOT"/scripts/omarchy-*; do
+  for src in "$REPO_ROOT"/scripts/texp-*; do
     [ -f "$src" ] || continue
     name="$(basename "$src")"
     if [ -x "$BIN_DIR/$name" ] && cmp -s "$src" "$BIN_DIR/$name"; then
@@ -84,12 +84,12 @@ if [ "$VERIFY" -eq 1 ]; then
   [ -f "$HYPR_DIR/tablet-experience.lua" ] \
     && ok "$HYPR_DIR/tablet-experience.lua present" \
     || bad "hypr config missing — re-run install.sh"
-  grep -qF 'o.launch_on_start("omarchy-vk daemon")' "$HYPR_DIR/autostart.lua" 2>/dev/null \
-    && ok "autostart: omarchy-vk daemon hook" \
-    || bad "autostart: omarchy-vk hook missing — re-run install.sh"
-  grep -qF 'o.launch_on_start("omarchy-touch daemon")' "$HYPR_DIR/autostart.lua" 2>/dev/null \
-    && ok "autostart: omarchy-touch daemon hook" \
-    || bad "autostart: omarchy-touch hook missing — re-run install.sh"
+  grep -qF 'o.launch_on_start("texp-vk daemon")' "$HYPR_DIR/autostart.lua" 2>/dev/null \
+    && ok "autostart: texp-vk daemon hook" \
+    || bad "autostart: texp-vk hook missing — re-run install.sh"
+  grep -qF 'o.launch_on_start("texp-touch daemon")' "$HYPR_DIR/autostart.lua" 2>/dev/null \
+    && ok "autostart: texp-touch daemon hook" \
+    || bad "autostart: texp-touch hook missing — re-run install.sh"
 
   # plugin enabled by omarchy
   if omarchy plugin list --json 2>/dev/null | grep -q '"maxt.tablet-experience"'; then
@@ -111,10 +111,10 @@ if [ "$VERIFY" -eq 1 ]; then
   fi
 
   # daemons running
-  pgrep -f "$BIN_DIR/omarchy-touch daemon" >/dev/null 2>&1 \
-    && ok "omarchy-touch daemon running" || warn "omarchy-touch daemon not running (starts at next login)"
-  pgrep -f "$BIN_DIR/omarchy-vk daemon" >/dev/null 2>&1 \
-    && ok "omarchy-vk daemon running" || warn "omarchy-vk daemon not running (starts at next login)"
+  pgrep -f "$BIN_DIR/texp-touch daemon" >/dev/null 2>&1 \
+    && ok "texp-touch daemon running" || warn "texp-touch daemon not running (starts at next login)"
+  pgrep -f "$BIN_DIR/texp-vk daemon" >/dev/null 2>&1 \
+    && ok "texp-vk daemon running" || warn "texp-vk daemon not running (starts at next login)"
 
   if [ "$FAIL" -eq 1 ]; then
     echo; echo "FAILURES FOUND — re-run: $0   (or --no-packages --dry-run to preview)"; exit 1
@@ -172,7 +172,7 @@ fi
 # ------------------------------------------------------- helper scripts
 log "installing helper daemons to $BIN_DIR"
 run mkdir -p "$BIN_DIR"
-for src in "$REPO_ROOT"/scripts/omarchy-*; do
+for src in "$REPO_ROOT"/scripts/texp-*; do
   [ -f "$src" ] || continue
   dst="$BIN_DIR/$(basename "$src")"
   if [ -e "$dst" ] && ! cmp -s "$src" "$dst"; then
@@ -200,8 +200,8 @@ append_if_missing "$HYPR_DIR/hyprland.lua" 'require("hypr.tablet-experience")'
 # --------------------------------------------------------- autostart hooks
 if [ -f "$HYPR_DIR/autostart.lua" ]; then
   log "wiring autostart hooks"
-  append_if_missing "$HYPR_DIR/autostart.lua" 'o.launch_on_start("omarchy-vk daemon")'
-  append_if_missing "$HYPR_DIR/autostart.lua" 'o.launch_on_start("omarchy-touch daemon")'
+  append_if_missing "$HYPR_DIR/autostart.lua" 'o.launch_on_start("texp-vk daemon")'
+  append_if_missing "$HYPR_DIR/autostart.lua" 'o.launch_on_start("texp-touch daemon")'
 else
   warn "$HYPR_DIR/autostart.lua not found — daemons will not autostart (start them manually)"
 fi

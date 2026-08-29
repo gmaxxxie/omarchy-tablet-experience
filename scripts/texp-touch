@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-omarchy-touch — multi-touch gestures for the tablet experience (Phase 11+).
+texp-touch — multi-touch gestures for the tablet experience (Phase 11+).
 
-Passive listener on the Wacom finger device (NO grab, like omarchy-vk).
+Passive listener on the Wacom finger device (NO grab, like texp-vk).
 Gestures NEVER synthesise input — they only run omarchy CLI/hyprctl, so they
 cannot fight Hyprland's own handling:
 
-  2-finger tap          -> omarchy-close --at <x> <y>   (close windows / panels)
-  3-finger tap          -> omarchy-vk toggle            (virtual keyboard)
+  2-finger tap          -> texp-close --at <x> <y>   (close windows / panels)
+  3-finger tap          -> texp-vk toggle            (virtual keyboard)
   2-finger swipe LEFT   -> workspace +1
   2-finger swipe RIGHT  -> workspace -1
   2-finger swipe DOWN   -> omarchy menu (root)
 
 Every completed touch also records the finger position (logical screen
-coords) to $XDG_STATE_HOME/omarchy-touch/touch-state, so the visible ✕ close
+coords) to $XDG_STATE_HOME/texp-touch/touch-state, so the visible ✕ close
 button (maxt.tablet-experience panel) closes the window the user last
 touched — Hyprland does not focus on touch tap, "focused window" is wrong.
 
@@ -27,7 +27,7 @@ InputManager.hpp MATRICES[8][6]):
   t=0: (x, y)        t=1: (1 - y, x)     t=2: (1 - x, 1 - y)   t=3: (y, 1 - x)
 
 Subcommands: daemon | selftest | help
-Debug: OMARCHY_TOUCH_DEBUG=1 omarchy-touch daemon
+Debug: OMARCHY_TOUCH_DEBUG=1 texp-touch daemon
 """
 
 import os
@@ -47,7 +47,7 @@ SWIPE_THRESHOLD = 1250           # raw units of travel for a 2-finger swipe
 COOLDOWN = 1.2                   # seconds between daemon actions
 
 STATE_DIR = os.environ.get(
-    "XDG_STATE_HOME", os.path.expanduser("~/.local/state")) + "/omarchy-touch"
+    "XDG_STATE_HOME", os.path.expanduser("~/.local/state")) + "/texp-touch"
 TOUCH_STATE = STATE_DIR + "/touch-state"   # last-touch: "<x> <y>" + mtime
 
 DBG = os.environ.get("OMARCHY_TOUCH_DEBUG") == "1"
@@ -267,7 +267,7 @@ def record_last_touch(lx, ly):
     # it even after the point becomes stale; empty means "no window here".
     addr = ""
     try:
-        out = subprocess.run(["omarchy-window", "resolve", "--at", f"{lx:.0f}", f"{ly:.0f}"],
+        out = subprocess.run(["texp-window", "resolve", "--at", f"{lx:.0f}", f"{ly:.0f}"],
                              capture_output=True, text=True, timeout=5)
         addr = (out.stdout or "").strip()
     except Exception:
@@ -312,7 +312,7 @@ def focus_at(lx, ly):
     this restores desktop-style "tap to focus"). Swipe/tap gestures keep
     working because we only ADD a focus dispatch, never touch input."""
     try:
-        out = subprocess.run(["omarchy-window", "resolve", "--at", f"{lx:.0f}", f"{ly:.0f}"],
+        out = subprocess.run(["texp-window", "resolve", "--at", f"{lx:.0f}", f"{ly:.0f}"],
                              capture_output=True, text=True, timeout=5)
         addr = (out.stdout or "").strip()
     except Exception:
@@ -328,17 +328,17 @@ def daemon():
 
     found = find_touch_device()
     if found is None:
-        print("omarchy-touch: no touch device found", file=sys.stderr)
+        print("texp-touch: no touch device found", file=sys.stderr)
         return 2
     path, name, dev = found
-    dlog(f"omarchy-touch: watching {path} ({name})")
+    dlog(f"texp-touch: watching {path} ({name})")
 
     # ABS ranges for raw -> normalized mapping
     ax = dev.absinfo(ecodes.ABS_MT_POSITION_X) if dev.absinfo(ecodes.ABS_MT_POSITION_X) else None
     ay = dev.absinfo(ecodes.ABS_MT_POSITION_Y) if dev.absinfo(ecodes.ABS_MT_POSITION_Y) else None
     xmin, xmax = (ax.min, ax.max) if ax else (0, 1)
     ymin, ymax = (ay.min, ay.max) if ay else (0, 1)
-    dlog(f"omarchy-touch: abs X {xmin}..{xmax}  Y {ymin}..{ymax}")
+    dlog(f"texp-touch: abs X {xmin}..{xmax}  Y {ymin}..{ymax}")
 
     def dispatch(action, contacts):
         # Action coordinates: midpoint of the gesture's finger positions.
@@ -355,7 +355,7 @@ def daemon():
             if mon:
                 lx, ly = raw_to_logical(cx, cy, xmin, xmax, ymin, ymax, t, mon)
         except Exception as e:
-            dlog(f"omarchy-touch: coord resolve failed: {e}")
+            dlog(f"texp-touch: coord resolve failed: {e}")
 
         # Touch never focuses in Hyprland; a single-finger tap focuses the
         # visible window under the finger (workspace swipe/multi-finger
@@ -366,11 +366,11 @@ def daemon():
         if action == "tap2":
             dlog("-> tap2 close at %s %s" % (lx, ly))
             if lx is not None and ly is not None:
-                run(["omarchy-close", "--at", f"{lx:.0f}", f"{ly:.0f}"])
+                run(["texp-close", "--at", f"{lx:.0f}", f"{ly:.0f}"])
             else:
-                run(["omarchy-close"])
+                run(["texp-close"])
         elif action == "tap3":
-            run(["omarchy-vk", "toggle"])
+            run(["texp-vk", "toggle"])
         elif action == "swipe-left":
             run(["hyprctl", "dispatch", "workspace", "+1"])
         elif action == "swipe-right":

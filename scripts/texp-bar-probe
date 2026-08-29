@@ -6,7 +6,7 @@ strip across the bar (y = raw 130 ≈ 15/800 logical). For each tap it
 reports whether the tablet-experience mode toggled (the bar's mode button
 was hit) or the workspace changed — proof the bar surface received input.
 
-Usage: omarchy-bar-probe [-c]   (-c: also cycle through 5 x positions)
+Usage: texp-bar-probe [-c]   (-c: also cycle through 5 x positions)
 """
 import sys
 import time
@@ -51,7 +51,7 @@ def main():
             (ecodes.ABS_MT_POSITION_Y, AbsInfo(0, 0, Y_MAX, 0, 0, 0)),
         ],
     }
-    ui = UInput(cap, name="omarchy-bar-probe")
+    ui = UInput(cap, name="texp-bar-probe")
     time.sleep(0.5)
     print("probe device created; settling 2s", flush=True)
     time.sleep(2)

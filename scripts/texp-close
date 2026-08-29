@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# omarchy-close — close floating omarchy panels/overlays, else the window
+# texp-close — close floating omarchy panels/overlays, else the window
 # the user touched (or the focused window as a last resort).
 #
 # Tablet-mode touch-first fix: when the folio keyboard is off there is no
@@ -13,10 +13,10 @@
 #      hide every panel-capable plugin id. Hiding a closed panel is a no-op.
 #   2. Otherwise close the window under the touch point:
 #        --at X Y        explicit logical-screen coordinates
-#        (no args)       last touch point recorded by omarchy-touch, if fresh
+#        (no args)       last touch point recorded by texp-touch, if fresh
 #        (no touch)      the focused window (keyboard/laptop fallback)
 #
-# Used by: omarchy-touch 2-finger tap (passes --at), the tablet-experience
+# Used by: texp-touch 2-finger tap (passes --at), the tablet-experience
 # ✕ close button (plain call, reads the daemon's last-touch state), and any
 # keybinding.
 #
@@ -25,7 +25,7 @@
 
 set -eu
 
-TOUCH_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-touch/touch-state"
+TOUCH_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/texp-touch/touch-state"
 STATE_FRESH_S=8
 
 AT_X=""
@@ -99,7 +99,7 @@ elif [ -f "$TOUCH_STATE" ] && [ $(( $(date +%s) - $(stat -c %Y "$TOUCH_STATE" 2>
   POINT_ARG=(--at "${1:-}" "${2:-}")
 fi
 
-TARGET="$(omarchy-window resolve "${POINT_ARG[@]:-}")"
+TARGET="$(texp-window resolve "${POINT_ARG[@]:-}")"
 [ -n "$TARGET" ] || exit 0
 
 if [ "$DRY_RUN" -eq 1 ]; then

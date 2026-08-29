@@ -52,11 +52,10 @@ Uninstall: `uninstall.sh` (system side) + `omarchy plugin remove maxt.tablet-exp
   Hyprland's Lua runtime API (`hyprctl eval "hl.monitor(...)"` etc.),
   Quickshell/QML APIs, and the `omarchy-shell` / `omarchy-osd` / `omarchy plugin`
   CLI contracts used by scripts and hooks.
-- **Known risk, tracked:** the helper binaries borrow the `omarchy-*`
-  namespacing (`omarchy-vk`, `omarchy-rotate`, …) even though they are ours
-  in `~/.local/bin`. A future official binary of the same name would shadow
-  them (PATH order). Mitigation is a rename (`texp-*`) if that ever becomes
-  a real conflict.
+- **Namespace:** helper binaries use the reserved `texp-*` prefix
+  (`texp-vk`, `texp-rotate`, …) so they can never collide with official
+  `omarchy-*` tools (earlier releases used `omarchy-*` — migrated because a
+  future official binary of the same name would shadow them via PATH).
 
 ## Status board
 
@@ -67,9 +66,9 @@ Uninstall: `uninstall.sh` (system side) + `omarchy plugin remove maxt.tablet-exp
 | 2 | Native workspace swipe | ✅ edge-swipe verified working (user-tested), `gestures:workspace_swipe_touch=true` |
 | 3 | Input method (Chinese) | ✅ fcitx5 + Rime + Wanxiang deployed + **LTS gram 语言模型已装入** (~400MB, 无 sudo) |
 | 4 | Virtual keyboard | 🟡 squeekboard (extra) core path **working**: D-Bus toggle ✓, bottom-edge up-swipe show ✓ (user-tested), `SUPER+U` bind ✓; pending autostart + touch/Chinese input verification |
-| 5–11 | rotation / state / UI / auto-switch | 🟡 P5 ✅ · P7/8 ✅ · P6/9/10 wired (auto-orient opt-in; kb auto-switch ON by default since v0.5.8) ⏳ activate at next login · **P11 ✅ `omarchy-touch` multi-touch daemon (synthetics-tested, live, needs 2-finger pass)** |
+| 5–11 | rotation / state / UI / auto-switch | 🟡 P5 ✅ · P7/8 ✅ · P6/9/10 wired (auto-orient opt-in; kb auto-switch ON by default since v0.5.8) ⏳ activate at next login · **P11 ✅ `texp-touch` multi-touch daemon (synthetics-tested, live, needs 2-finger pass)** |
 | 12 | **Hardware full bring-up (esp. camera)** | 🟡 camera **verified via UVC** (RGB MJPG + IR, see `PHASE12-HARDWARE.md`); IPU6 CSI confirmed dead end. libcamera now installed → browser test pending relogin. Fingerprint enrolled+live, BT scan verified, audio sinks/sources present |
-| 13 | **Tablet window manage (v0.5.6: close / move ws / layout + Auto⇄Fixed rotation)** | ✅ live. Always-mounted bar entry: laptop → `Laptop` button (popup = mode/rotation only); tablet → `窗口` button unlocking close ✕ / move-to-workspace grid (1–10) / Dwindle·Scrolling switch (persisted like SUPER+L). Max/min/restore removed. Targeting = window under last touch, visible windows only. **New: omarchy-touch single-finger tap now FOCUSES the tapped visible window** (Hyprland touch never focuses — Touch.cpp; this mattered in scrolling layout where windows sit off-view). Verified: focus dispatch changes activewindow; move/layout/close re-verified. Notification feedback on move/layout |
+| 13 | **Tablet window manage (v0.5.6: close / move ws / layout + Auto⇄Fixed rotation)** | ✅ live. Always-mounted bar entry: laptop → `Laptop` button (popup = mode/rotation only); tablet → `窗口` button unlocking close ✕ / move-to-workspace grid (1–10) / Dwindle·Scrolling switch (persisted like SUPER+L). Max/min/restore removed. Targeting = window under last touch, visible windows only. **New: texp-touch single-finger tap now FOCUSES the tapped visible window** (Hyprland touch never focuses — Touch.cpp; this mattered in scrolling layout where windows sit off-view). Verified: focus dispatch changes activewindow; move/layout/close re-verified. Notification feedback on move/layout |
 
 ## System facts (captured 2026-08-28)
 
@@ -89,15 +88,15 @@ Uninstall: `uninstall.sh` (system side) + `omarchy plugin remove maxt.tablet-exp
 |---|---|---|
 | `~/.config/hypr/hyprland.lua` | appended `require("hypr.tablet-experience")` | `hyprland.lua.bak.1787928342` |
 | `~/.config/hypr/tablet-experience.lua` | NEW — plugin-owned generated config (Phase 2 swipe + Phase 4 `SUPER+U` vk bind) | latest edit 2026-08-29 |
-| `~/.config/hypr/autostart.lua` | added `o.launch_on_start("omarchy-vk daemon")` (Phase 4 persistence) | `autostart.lua.bak.*` |
-| `~/.local/bin/omarchy-window` + `scripts/omarchy-window` | v0.4 — `resolve|close|move <ws>|layout <dwindle|scrolling|toggle>` via 0.56 Lua API; only VISIBLE windows targeted; layout persisted like omarchy's SUPER+L; notify feedback | (repo archive) |
-| `~/.local/bin/omarchy-close` + `scripts/omarchy-close` | REWRITTEN (v0.3) — panels first, then `omarchy-window resolve` (last touch or focused); `--at X Y`/`--dry-run` | (repo archive) |
-| `~/.local/bin/omarchy-touch` + `scripts/omarchy-touch` | v0.5 — records last touch on real windows + **single-finger tap focuses the tapped visible window** (`hl.dsp.focus` via eval); tap2 = `omarchy-close --at`; skips bar/panels/VK | (repo archive) |
-| `~/.local/bin/omarchy-rotate` + `scripts/omarchy-rotate` | v0.3 — ALSO sets `input:touchdevice:transform` to match the monitor (touch alignment on rotated screens was previously broken: Hyprland never recalibrates it) | (repo archive) |
+| `~/.config/hypr/autostart.lua` | added `o.launch_on_start("texp-vk daemon")` (Phase 4 persistence) | `autostart.lua.bak.*` |
+| `~/.local/bin/texp-window` + `scripts/texp-window` | v0.4 — `resolve|close|move <ws>|layout <dwindle|scrolling|toggle>` via 0.56 Lua API; only VISIBLE windows targeted; layout persisted like omarchy's SUPER+L; notify feedback | (repo archive) |
+| `~/.local/bin/texp-close` + `scripts/texp-close` | REWRITTEN (v0.3) — panels first, then `texp-window resolve` (last touch or focused); `--at X Y`/`--dry-run` | (repo archive) |
+| `~/.local/bin/texp-touch` + `scripts/texp-touch` | v0.5 — records last touch on real windows + **single-finger tap focuses the tapped visible window** (`hl.dsp.focus` via eval); tap2 = `texp-close --at`; skips bar/panels/VK | (repo archive) |
+| `~/.local/bin/texp-rotate` + `scripts/texp-rotate` | v0.3 — ALSO sets `input:touchdevice:transform` to match the monitor (touch alignment on rotated screens was previously broken: Hyprland never recalibrates it) | (repo archive) |
 | `~/.config/omarchy/plugins/maxt.tablet-experience/manifest.json` | v0.3.0 — kinds `service, bar-widget` (panel kind REVERTED — see pivot note) | — |
 | `~/.config/omarchy/plugins/maxt.tablet-experience/BarWidget.qml` | v0.5 — always-mounted button (laptop label=“Laptop”, tablet label=“窗口”); manage section (close/move/layout) rendered only in tablet mode; Laptop/Tablet + rotation always; IPC `maxt.tablet-window` | (repo archive) |
-| `~/.local/bin/omarchy-rotate` + `scripts/omarchy-rotate` | Phase 5 — rotation helper (transform 0/90/180/270) + OSD | (repo archive) |
-| `~/.local/bin/omarchy-orient` + `scripts/omarchy-orient` | Phase 6 — IIO accel posture probe (sysfs, zero deps) | (repo archive) |
+| `~/.local/bin/texp-rotate` + `scripts/texp-rotate` | Phase 5 — rotation helper (transform 0/90/180/270) + OSD | (repo archive) |
+| `~/.local/bin/texp-orient` + `scripts/texp-orient` | Phase 6 — IIO accel posture probe (sysfs, zero deps) | (repo archive) |
 | `config/hypr/tablet-experience.lua` (this repo) | Phase 5 — archived copy incl. `SUPER+SHIFT+R` rotation-cycle bind | — |
 | `PHASE12-HARDWARE.md` (this repo) | NEW — camera UVC verification + IPU6 dead-end analysis, fingerprint/BT/audio status | — |
 | `~/.config/fcitx5/profile` | added `rime` as 2nd input method | `profile.bak.1787928474` |
@@ -107,11 +106,11 @@ Uninstall: `uninstall.sh` (system side) + `omarchy plugin remove maxt.tablet-exp
 
 ## Current runtime state (2026-08-29)
 
-**Phase 5 — manual rotation (done, pending user touch-check):** `omarchy-rotate`
-(script + OSD, live at `~/.local/bin/`, archived at `scripts/omarchy-rotate`)
+**Phase 5 — manual rotation (done, pending user touch-check):** `texp-rotate`
+(script + OSD, live at `~/.local/bin/`, archived at `scripts/texp-rotate`)
 rotates eDP-1 via `hyprctl eval "hl.monitor({...})"` — all 4 transforms
 verified roundtrip. Binds `SUPER+SHIFT+R` → rotate to next orientation
-(0°/90°/180°/270° cycle, `omarchy-rotate next`), added to
+(0°/90°/180°/270° cycle, `texp-rotate next`), added to
 `tablet-experience.lua` (archived at `config/hypr/tablet-experience.lua`),
 config reloaded clean, binds registered. Touch/pen mapping follows the
 monitor automatically (`input:touchdevice:output=Auto`), awaiting physical
@@ -120,7 +119,7 @@ omarchy's `SUPER+CTRL+1..9` bar-panel keybinds; see AUDIT.)
 
 **Phase 6 — auto-rotation (iio-sensor-proxy now installed; wiring pending):**
 IIO accel_3d live (g=(−0.35,−6.61,−8.21), dominant −z ⇒ `normal`). Probe
-`omarchy-orient` (sysfs; `--watch` to calibrate) classifies postures. Next:
+`texp-orient` (sysfs; `--watch` to calibrate) classifies postures. Next:
 wiring orientation→transform through the state machine (Phase 7 service hook).
 
 **Phases 7+8 — Laptop/Tablet state machine + Omarchy plugin (done, live):** plugin v0.2.0
@@ -135,7 +134,7 @@ below**):
   `net.hadess.SensorProxy.AccelerometerOrientation` via busctl every 1.5s,
   applies normal→0°/left-up→90°/bottom-up→180°/right-up→270° silently,
   tablet-mode only), `autoSwitchMode` (opt-in; USB 17ef:60fe attach/detach
-  via `omarchy-kbdetect` → laptop/tablet), IPC
+  via `texp-kbdetect` → laptop/tablet), IPC
   `setAutoOrient`/`setAutoSwitch`, extended getState. Boot marker log line on
   activation: `tablet-experience Service LOADED v2`.
 - **BarWidget.qml** — mode button (left=toggle, right=rotation-preset ring);
@@ -156,7 +155,7 @@ plugin code applies only on a full omarchy-shell restart (next login).
 `omarchy-shell` CLI itself is unaffected. This also means: keep the plugin
 stable between logins; verify changes after a relogin.
 
-**Phase 11 — multi-touch gestures (`omarchy-touch`, live, needs your 2-finger pass):**
+**Phase 11 — multi-touch gestures (`texp-touch`, live, needs your 2-finger pass):**
 passive evdev daemon (no grab) on the Wacom finger device; gestures only
 run CLI/hyprctl (never synthesise input): **2-finger tap = VK toggle ·
 2-finger swipe LEFT/RIGHT = workspace +1/-1 · 2-finger swipe DOWN = omarchy
@@ -165,7 +164,7 @@ Hyprland 0.56.2; external daemons as MVP dep rejected). Live-capture
 protocol finding (2026-08-29): the panel IS true multi-touch (S0/S1/S2);
 single-touch streams are slot-less (bare events imply slot 0), multi-touch
 frames carry `ABS_MT_SLOT` per contact. The tracker is slot-keyed with
-last-seen-slot fallback; the earlier "no SLOT events" claim (omarchy-vk
+last-seen-slot fallback; the earlier "no SLOT events" claim (texp-vk
 note) was disproven and corrected.
 Classifier verified with 10 synthetic cases (all PASS); daemon running now
 and autostarted (`autostart.lua`). **A physical two-finger pass is
@@ -183,17 +182,17 @@ relogin/restart so WirePlumber picks the UVC device up.**
 
 - `gestures:workspace_swipe_touch = true` (Phase 2, verified)
 - VK renderer: **squeekboard** — D-Bus `sm.puri.OSK0.SetVisible`, state property `.Visible` (toggle = read-then-invert)
-- Gesture daemon: `~/.local/bin/omarchy-vk daemon` (also archived at `scripts/omarchy-vk` in this repo) — bottom 12% up-swipe → show; kb-visible + start ≥68% downward drag → dismiss; threshold/zone constants at top of file
+- Gesture daemon: `~/.local/bin/texp-vk daemon` (also archived at `scripts/texp-vk` in this repo) — bottom 12% up-swipe → show; kb-visible + start ≥68% downward drag → dismiss; threshold/zone constants at top of file
 - Wacom touch quirk: reports `ABS_MT_TRACKING_ID` **without** `ABS_MT_SLOT` events (fixed in daemon: tracks by touch-id)
 - fcitx5 service enabled → auto-start on next login
 
 ## Next actions
 
-**Done this round (2026-08-29, v0.5.0):** two user issues fixed. (1) laptop mode had lost the bar entry (v0.4 hid the whole widget) → the button is always mounted now: laptop shows `Laptop` + a popup with Laptop/Tablet/rotation, tablet shows `窗口` + the full manage section. (2) in scrolling layout, tapping didn't focus windows → Hyprland touch NEVER focuses (Touch.cpp routes events to the surface under the finger but keeps keyboard focus), which only becomes obvious in scrolling; omarchy-touch now dispatches `hl.dsp.focus` on single-finger taps on a visible window (verified against the live session: activewindow follows the tap). Workspace-layout persistence and visible-only targeting unchanged.
+**Done this round (2026-08-29, v0.5.0):** two user issues fixed. (1) laptop mode had lost the bar entry (v0.4 hid the whole widget) → the button is always mounted now: laptop shows `Laptop` + a popup with Laptop/Tablet/rotation, tablet shows `窗口` + the full manage section. (2) in scrolling layout, tapping didn't focus windows → Hyprland touch NEVER focuses (Touch.cpp routes events to the surface under the finger but keeps keyboard focus), which only becomes obvious in scrolling; texp-touch now dispatches `hl.dsp.focus` on single-finger taps on a visible window (verified against the live session: activewindow follows the tap). Workspace-layout persistence and visible-only targeting unchanged.
 **Earlier same day:** Wanxiang LTS gram 语言模型 installed — `~/.local/share/fcitx5/rime/wanxiang-lts-zh-hans.gram` (420MB, from `amzxyz/RIME-LMDG` release `LTS`), fcitx5 restarted, the `error opening gram db` journal error is gone, `rime_deployer --build` clean. No sudo needed. **Also done (sudo via fingerprint):** `gst-plugins-good` installed (`v4l2src` pipeline verified: `gst-launch-1.0 v4l2src … jpegdec` clean 3 frames); `intel-ipu6` + `intel-ipu6-isys` UNLOADED live and blacklisted (`/etc/modprobe.d/blacklist-ipu6.conf`) — junk `/dev/video0–63` gone (68 → 4 video nodes; UVC RGB/IR still at 64–67, recaptured 1280x720 MJPG frames OK).
 
 0. **🎯 IMPORTANT — relogin to activate: the plugin's new v0.2.0 code (auto-orient, keyboard watcher, auto-switch) only loads on a fresh omarchy-shell (hot reload doesn't swap service QML — see AUDIT).** At that point the bar button, camera (wireplumber), gestures autostart, and plugin state all come up together.
-1. **After relogin:** verify `tablet-experience Service LOADED v2` in journal; test `SUPER+SHIFT+R` rotation cycle + touch mapping; bar button left/right click; `SUPER+SHIFT+U`; menu → Tablet; then opt-in `omarchy-shell maxt.tablet-experience setAutoOrient on` + `setAutoSwitch on` (calibrate with `omarchy-orient --watch` first, then `setMode tablet`).
+1. **After relogin:** verify `tablet-experience Service LOADED v2` in journal; test `SUPER+SHIFT+R` rotation cycle + touch mapping; bar button left/right click; `SUPER+SHIFT+U`; menu → Tablet; then opt-in `omarchy-shell maxt.tablet-experience setAutoOrient on` + `setAutoSwitch on` (calibrate with `texp-orient --watch` first, then `setMode tablet`).
 2. **Camera:** webcamtests.com in Chromium (libcamera now present after relogin).
 3. **squeekboard typing + Rime** (`nihao` → candidates) — Phase 4 verification.
 4. **User device tests:** fingerprint unlock; BT pair; speaker/mic.
@@ -210,14 +209,14 @@ omarchy-tablet-experience/            ← repo root = plugin root (marketplace c
 ├── BarWidget.qml                  ← always-mounted bar button + popup
 ├── install.sh / uninstall.sh      ← one-command setup/teardown (reversible)
 ├── scripts/                       ← helper daemons (auto-installed to ~/.local/bin)
-│   ├── omarchy-vk             ← VK toggle + bottom-edge swipe daemon
-│   ├── omarchy-touch          ← multi-touch gestures + last-touch tracking
-│   ├── omarchy-close          ← close panels/overlays/touched window (touch Esc)
-│   ├── omarchy-window         ← tablet actions (close/move/layout; visible targets only)
-│   ├── omarchy-rotate         ← rotation helper (+ touch-device transform sync)
-│   ├── omarchy-orient         ← IIO accel posture probe (--watch to calibrate)
-│   ├── omarchy-kbdetect       ← folio-keyboard USB presence (sysfs, no udev)
-│   └── omarchy-bar-probe      ← uinput diagnostic (bar touch-hit verification)
+│   ├── texp-vk             ← VK toggle + bottom-edge swipe daemon
+│   ├── texp-touch          ← multi-touch gestures + last-touch tracking
+│   ├── texp-close          ← close panels/overlays/touched window (touch Esc)
+│   ├── texp-window         ← tablet actions (close/move/layout; visible targets only)
+│   ├── texp-rotate         ← rotation helper (+ touch-device transform sync)
+│   ├── texp-orient         ← IIO accel posture probe (--watch to calibrate)
+│   ├── texp-kbdetect       ← folio-keyboard USB presence (sysfs, no udev)
+│   └── texp-bar-probe      ← uinput diagnostic (bar touch-hit verification)
 ├── config/hypr/tablet-experience.lua  ← Hyprland binds/swipe (installed + hooked)
 ├── AUDIT.md                      ← Phase 0 audit + progress log
 ├── DEBUG-TOUCH-BAR.md            ← top-bar touch investigation record

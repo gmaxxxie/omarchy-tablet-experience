@@ -96,7 +96,7 @@ Item {
       root.appliedFor = ""
       root.pollOrientation()   // read the sensor and apply right now
     } else if (!rotateProcess.running) {
-      rotateProcess.command = ["omarchy-rotate", rotationTarget(value)]
+      rotateProcess.command = ["texp-rotate", rotationTarget(value)]
       rotateProcess.running = true
     }
   }
@@ -133,7 +133,7 @@ Item {
     // Auto-orientation hands the display to the sensor; otherwise apply the
     // preset (off = back to initial 0°).
     if (!persisted.autoOrient && !rotateProcess.running) {
-      rotateProcess.command = ["omarchy-rotate", rotationTarget(persisted.tabletRotation)]
+      rotateProcess.command = ["texp-rotate", rotationTarget(persisted.tabletRotation)]
       rotateProcess.running = true
     }
   }
@@ -141,7 +141,7 @@ Item {
   // Phase 6 — orientation → transform, only when enabled AND in tablet mode.
   // iio-sensor-proxy convention:
   //   normal → 0 · left-up → 1 (90°) · bottom-up → 2 (180°) · right-up → 3 (270°)
-  // (needs one physical calibration pass, see omarchy-orient --watch)
+  // (needs one physical calibration pass, see texp-orient --watch)
   function orientationTransform(o) {
     if (o === "left-up") return "1"
     if (o === "right-up") return "3"
@@ -155,7 +155,7 @@ Item {
     var t = orientationTransform(root.orientation)
     if (root.appliedFor !== root.orientation) {
       root.appliedFor = root.orientation
-      rotateProcess.command = ["omarchy-rotate", "-s", t]
+      rotateProcess.command = ["texp-rotate", "-s", t]
       rotateProcess.running = true
     }
   }
@@ -223,7 +223,7 @@ Item {
 
   Process {
     id: kbProbe
-    command: ["omarchy-kbdetect"]
+    command: ["texp-kbdetect"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {

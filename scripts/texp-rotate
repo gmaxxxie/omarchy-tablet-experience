@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# omarchy-rotate — rotate the primary display (detachable tablet experience).
+# texp-rotate — rotate the primary display (detachable tablet experience).
 #
-# Usage: omarchy-rotate [-s] <0|1|2|3|next|prev>
+# Usage: texp-rotate [-s] <0|1|2|3|next|prev>
 #   -s   silent: skip the OSD notification (used by auto-orientation)
 #   0 = landscape  1 = portrait 90°  2 = flipped 180°  3 = portrait 270°
 #   next            cycle to the following orientation (0°→90°→180°→270°→0°)
@@ -16,7 +16,7 @@
 # rotates — the touch device keeps libinput's calibration matrix
 # (input:touchdevice:transform, default 0 = identity), so a rotated screen
 # would mis-map taps. We therefore set the touch-device transform to the SAME
-# value as the monitor transform; the daemon in omarchy-touch mirrors this
+# value as the monitor transform; the daemon in texp-touch mirrors this
 # matrix when resolving touch points to logical coords.
 set -eu
 
@@ -40,7 +40,7 @@ case "$ARG" in
     cur="$(hyprctl monitors -j | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["transform"])' 2>/dev/null || echo 0)"
     if [ "$ARG" = "next" ]; then N=$(( (cur + 1) % 4 )); else N=$(( (cur + 3) % 4 )); fi
     ;;
-  *) echo "usage: omarchy-rotate [-s] <0|1|2|3|next|prev>" >&2; exit 2 ;;
+  *) echo "usage: texp-rotate [-s] <0|1|2|3|next|prev>" >&2; exit 2 ;;
 esac
 
 case "$N" in

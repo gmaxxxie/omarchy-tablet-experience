@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# omarchy-window — tablet window actions (bar popup for Omarchy).
+# texp-window — tablet window actions (bar popup for Omarchy).
 #
 # Everything is touch-first. Hyprland does NOT focus windows on touch tap
 # (Touch.cpp), so "the focused window" is the wrong target on a touchscreen;
 # these actions target the window under the LAST TOUCH first (recorded by the
-# omarchy-touch daemon in ~/.local/state/omarchy-touch/touch-state), falling
+# texp-touch daemon in ~/.local/state/texp-touch/touch-state), falling
 # back to the focused window.
 #
 # Hidden windows (special/scratchpad workspace) are never targeted — an
@@ -27,7 +27,7 @@
 
 set -eu
 
-TOUCH_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-touch/touch-state"
+TOUCH_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/texp-touch/touch-state"
 STATE_FRESH_S=8
 LAYOUTS_DIR="$HOME/.local/state/omarchy/workspace-layouts"
 
@@ -189,7 +189,7 @@ case "$ACTION" in
     ;;
   move)
     WS="${POS[0]-}"
-    [ -n "$WS" ] || { echo "usage: omarchy-window move <workspace-id>" >&2; exit 2; }
+    [ -n "$WS" ] || { echo "usage: texp-window move <workspace-id>" >&2; exit 2; }
     ADDR="$(resolve)"
     [ -n "$ADDR" ] || exit 0
     lua_call "hl.dispatch(hl.dsp.window.move($(win "$ADDR"), workspace = '${WS}', follow = false }))"
@@ -208,7 +208,7 @@ sys.stdout.write(str(d.get("tiledLayout") or ""))
     case "$MODE" in
       toggle) [ "$CUR" = "dwindle" ] && MODE=scrolling || MODE=dwindle ;;
       dwindle|scrolling) : ;;
-      *) echo "usage: omarchy-window layout <dwindle|scrolling|toggle>" >&2; exit 2 ;;
+      *) echo "usage: texp-window layout <dwindle|scrolling|toggle>" >&2; exit 2 ;;
     esac
     [ "$MODE" = "$CUR" ] && { notify "󱂬" "Workspace already on $MODE layout"; exit 0; }
 
@@ -235,7 +235,7 @@ sys.stdout.write(str(d.get("id") or ""))
     notify "󱂬" "Workspace ${WS} layout → $MODE"
     ;;
   *)
-    echo "usage: omarchy-window <resolve|close|move <ws>|layout <dwindle|scrolling|toggle>> [--at X Y] [--dry-run]" >&2
+    echo "usage: texp-window <resolve|close|move <ws>|layout <dwindle|scrolling|toggle>> [--at X Y] [--dry-run]" >&2
     exit 2
     ;;
 esac

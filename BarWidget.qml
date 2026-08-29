@@ -13,8 +13,8 @@ import qs.Ui
 //
 // Window targets are touch-first (Hyprland does not focus on touch tap):
 // each action targets the window under the LAST TOUCH, recorded by the
-// omarchy-touch daemon; single-finger taps also focus the tapped window
-// now (also omarchy-touch), which scrolling-layout windows need.
+// texp-touch daemon; single-finger taps also focus the tapped window
+// now (also texp-touch), which scrolling-layout windows need.
 
 Panel {
   id: root
@@ -117,7 +117,7 @@ Panel {
           height: Style.space(40)
           iconText: "✕"
           text: "Close"
-          onClicked: { root.runAction(["omarchy-window", "close"]); root.close() }
+          onClicked: { root.runAction(["texp-window", "close"]); root.close() }
         }
 
         Button {
@@ -144,7 +144,7 @@ Panel {
               text: String(index + 1)
               active: root.wsId === index + 1
               onClicked: {
-                root.runAction(["omarchy-window", "move", String(index + 1)])
+                root.runAction(["texp-window", "move", String(index + 1)])
                 root.close()
               }
             }
@@ -166,14 +166,14 @@ Panel {
             height: Style.space(40)
             text: "Dwindle"
             active: root.wsLayout === "dwindle"
-            onClicked: { root.runAction(["omarchy-window", "layout", "dwindle"]) }
+            onClicked: { root.runAction(["texp-window", "layout", "dwindle"]) }
           }
           Button {
             width: (parent.width - parent.spacing) / 2
             height: Style.space(40)
             text: "Scrolling"
             active: root.wsLayout === "scrolling"
-            onClicked: { root.runAction(["omarchy-window", "layout", "scrolling"]) }
+            onClicked: { root.runAction(["texp-window", "layout", "scrolling"]) }
           }
         }
 

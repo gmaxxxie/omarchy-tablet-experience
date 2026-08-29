@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# omarchy-kbdetect — report whether the detachable keyboard is attached.
+# texp-kbdetect — report whether the detachable keyboard is attached.
 #
 # The X12 folio keyboard enumerates on USB as Lenovo 17ef:60fe, so attach/
 # detach shows up as USB plug/unplug (Phase 0 finding). Other detachables can

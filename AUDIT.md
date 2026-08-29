@@ -345,3 +345,13 @@ Cleared by controlled experiments: `gestures:workspace_swipe_touch` (off → no 
 Evidence: `hyprctl layers` shows only `omarchy-bar 0 0 1200 30` at top, no overlay; no occlusion. Hyprland 0.56.2 source + Quickshell source review says the bar should be hittable (Quickshell never sets empty input regions). Root cause not found yet.
 
 Action: reboot planned; then re-test bar. Full record: `DEBUG-TOUCH-BAR.md` in project dir.
+### 2026-08-29 — namespace migration: `omarchy-*` → `texp-*`
+
+Helpers renamed (`omarchy-vk/rotate/orient/kbdetect/touch/close/window/bar-probe`
+→ `texp-*`) after borrowing the official `omarchy-*` namespace during
+development. Reason: a future official binary of the same name would shadow
+ours via PATH order. This history keeps the old names where they refer to the
+past; all live references (scripts, QML Process commands, hypr binds,
+autostart, menu jsonc, install/uninstall) use `texp-*`. Verified live after
+rename: daemons restarted under new names, hyprctl binds re-checked, and
+`install.sh --verify` fully green.

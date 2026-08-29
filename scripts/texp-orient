@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""omarchy-orient — IIO accelerometer posture probe (tablet experience).
+"""texp-orient — IIO accelerometer posture probe (tablet experience).
 
 Reads accel_3d from sysfs (no extra packages needed) and classifies the
 device posture using the iio-sensor-proxy convention for the *dominant* axis:
@@ -12,7 +12,7 @@ device posture using the iio-sensor-proxy convention for the *dominant* axis:
 
 IMPORTANT: sensor mounting (lid vs base) and axis sign conventions differ per
 board, so the label is a *starting point*, not truth. Verify physically once:
-  omarchy-orient --watch        # tilt the device through all 4 postures
+  texp-orient --watch        # tilt the device through all 4 postures
 Then note corrections in README Phase 6.
 
 Also prints the raw gravity vector so a calibration table can be derived.

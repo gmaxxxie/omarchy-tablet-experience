@@ -42,8 +42,8 @@ for f in "$HYPR_DIR/autostart.lua" "$HYPR_DIR/hyprland.lua"; do
   orig_cksum="$(cksum "$f" | cut -d' ' -f1-2)"
   changed=0
   for line in \
-    'o.launch_on_start("omarchy-vk daemon")' \
-    'o.launch_on_start("omarchy-touch daemon")' \
+    'o.launch_on_start("texp-vk daemon")' \
+    'o.launch_on_start("texp-touch daemon")' \
     'require("hypr.tablet-experience")' \
   ; do
     if grep -qF -- "$line" "$f"; then
@@ -63,7 +63,7 @@ remove_deprecated_file "$HYPR_DIR/tablet-experience.lua" \
   "$REPO_ROOT/config/hypr/tablet-experience.lua" "hypr config"
 
 # ------------------------------------------------------- helper scripts
-for src in "$REPO_ROOT"/scripts/omarchy-*; do
+for src in "$REPO_ROOT"/scripts/texp-*; do
   [ -f "$src" ] || continue
   remove_deprecated_file "$BIN_DIR/$(basename "$src")" "$src" "helper script"
 done
