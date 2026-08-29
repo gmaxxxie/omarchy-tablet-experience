@@ -193,7 +193,7 @@ case "$ACTION" in
     ADDR="$(resolve)"
     [ -n "$ADDR" ] || exit 0
     lua_call "hl.dispatch(hl.dsp.window.move($(win "$ADDR"), workspace = '${WS}', follow = false }))"
-    notify "➜" "窗口已移动到工作区 ${WS}"
+    notify "➜" "Window moved to workspace ${WS}"
     ;;
   layout)
     MODE="${POS[0]:-toggle}"
@@ -210,7 +210,7 @@ sys.stdout.write(str(d.get("tiledLayout") or ""))
       dwindle|scrolling) : ;;
       *) echo "usage: omarchy-window layout <dwindle|scrolling|toggle>" >&2; exit 2 ;;
     esac
-    [ "$MODE" = "$CUR" ] && { notify "󱂬" "工作区已经是 $MODE 布局"; exit 0; }
+    [ "$MODE" = "$CUR" ] && { notify "󱂬" "Workspace already on $MODE layout"; exit 0; }
 
     WS="$(hyprctl activeworkspace -j 2>/dev/null | python3 -c '
 import json, sys
@@ -232,7 +232,7 @@ sys.stdout.write(str(d.get("id") or ""))
     # Same shape as omarchy's own SUPER+L toggle (workspace-layouts are
     # re-applied on login by default.hypr.workspace-layouts).
     lua_call "hl.workspace_rule({ workspace = '$WS', layout = '$MODE' })"
-    notify "󱂬" "工作区 ${WS} 布局 → $MODE"
+    notify "󱂬" "Workspace ${WS} layout → $MODE"
     ;;
   *)
     echo "usage: omarchy-window <resolve|close|move <ws>|layout <dwindle|scrolling|toggle>> [--at X Y] [--dry-run]" >&2

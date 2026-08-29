@@ -3,7 +3,7 @@
 Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 + Hyprland 0.56.2 for the **Lenovo ThinkPad X12 Detachable Gen 1**.
 
 > **Current stage: PHASE 5+7/8 — rotation working (SUPER+SHIFT+R cycles); Laptop/Tablet state machine + Omarchy bar-widget plugin live (`maxt.tablet-experience`); Phase 12 camera verified via UVC**
-> **v0.5.0 (2026-08-29): bar 入口常显(laptop→模式按钮, tablet→窗口按钮+窗口管理区); 单指触摸点击现在聚焦落点窗口(修复 scrolling 布局下点击不聚焦)**
+> **v0.5.1 (2026-08-29): bar 按钮改为 nerd icons(󰄨 laptop / 󰊠 tablet); 弹窗与通知全英文; v0.5.0: bar 入口常显 + 单指触摸点击聚焦落点窗口(scrolling 布局修复)**
 > Working location: `~/.config/omarchy/plugins/` (the plugin), source/docs live in this folder.
 
 ## Status board

@@ -54,7 +54,7 @@ Panel {
     id: button
     anchors.centerIn: parent
     bar: root.bar
-    text: root.tablet ? "窗口" : "Laptop"
+    text: root.tablet ? "\uF12A0" : "\uF0A28"   // nf-md-tablet / nf-md-laptop
     active: root.opened || root.tablet
     tooltipText: root.tablet
       ? "Window manage: close / move workspace / layout"
@@ -89,20 +89,20 @@ Panel {
         spacing: Style.spacing.sm
 
         PanelSectionHeader {
-          text: "窗口 — Window"
+          text: "Window"
         }
 
         Button {
           height: Style.space(40)
           iconText: "✕"
-          text: "关闭窗口"
+          text: "Close"
           onClicked: { root.runAction(["omarchy-window", "close"]); root.close() }
         }
 
         Button {
           height: Style.space(40)
           iconText: "➜"
-          text: "移动到工作区"
+          text: "Move to Workspace"
           onClicked: { root.showMoveGrid = !root.showMoveGrid }
         }
 
@@ -133,7 +133,7 @@ Panel {
         PanelSeparator { }
 
         PanelSectionHeader {
-          text: "布局 · 工作区 " + root.wsId + (root.wsLayout === "scrolling" ? " (scrolling)" : "")
+          text: "Layout · Workspace " + root.wsId + (root.wsLayout === "scrolling" ? " · Scrolling" : "")
         }
 
         Row {
@@ -187,7 +187,7 @@ Panel {
         width: parent.width
         height: Style.space(40)
         iconText: "⟳"
-        text: "旋转预设: " + root.rotationLabel()
+        text: "Rotation: " + root.rotationLabel()
         onClicked: { if (root.service) root.service.cycleRotationPreset() }
       }
     }
