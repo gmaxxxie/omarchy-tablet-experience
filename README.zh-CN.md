@@ -11,7 +11,7 @@
 
 - **Laptop ⇄ Tablet 状态机** — 跨 shell 重启持久化，OSD 反馈，IPC 可控。
 - **旋转** — 手动四向循环（`SUPER+SHIFT+R`）、传感器自动跟随（iio-sensor-proxy，仅平板模式）、或固定 0°/90°/180°/270° 预设。触摸校准随屏幕一起旋转（Hyprland 自身不会做这件事）。
-- **虚拟键盘** — squeekboard，`SUPER+U` 或屏幕底部上滑唤出（`texp-vk` 手势守护进程）。
+- **虚拟键盘** — squeekboard，`SUPER+U`、屏幕底部上滑或顶部栏键盘图标点击切换（图标高亮表示键盘可见）。
 - **多点触控手势**（`texp-touch`，被动 evdev 监听、不抢占设备）— 双指轻点：关闭手指下的面板/窗口 · 双指左/右滑：上一个/下一个工作区 · 双指下滑：呼出 Omarchy 菜单 · 单指轻点：聚焦被点窗口（Hyprland 触摸从不聚焦）。
 - **键盘自动模式切换** — 接上键盘 → laptop 模式，拆下 → tablet 模式（USB 存在性检测，默认开启）。
 - **平板窗口管理** — 平板模式下 bar 按钮弹出：关闭最近触摸的窗口 ✕、移动到工作区 1–10、切换布局 Dwindle/Scrolling。只瞄准可见窗口，操作有通知反馈。
@@ -57,7 +57,7 @@ omarchy plugin add https://github.com/gmaxxxie/omarchy-tablet-experience.git --e
 |---|---|
 | 切换 Laptop/Tablet 模式 | `SUPER+SHIFT+U`（或 bar 按钮左键） |
 | 下一个旋转预设 | `SUPER+SHIFT+R`（或 bar 按钮右键） |
-| 虚拟键盘 | `SUPER+U` · 屏幕底部上滑 |
+| 虚拟键盘 | `SUPER+U` · 屏幕底部上滑 · **顶部栏键盘图标**（点击显示/隐藏，高亮表示已显示） |
 | 关闭面板/被触摸窗口 | 双指轻点 |
 | 上一/下一工作区 | 双指左/右滑 |
 | Omarchy 菜单 | 双指下滑 |

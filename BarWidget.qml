@@ -4,12 +4,18 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// Tablet Experience — bar widget (v0.5): always-mounted window-manage popup.
+// Tablet Experience — bar widget (v0.7): always-mounted entry point with a
+// virtual-keyboard toggle icon (show/hide squeekboard, live state highlight)
+// plus the window-manage popup.
 //
-// The button is always visible so there is always an entry point: laptop
+// The buttons are always visible so there is always an entry point: laptop
 // mode shows the mode label and the popup only offers Laptop/Tablet;
 // tablet mode switches the label to 窗口 and unlocks, in order:
 // Window (close / move-to-workspace) · Layout (dwindle/scrolling) · Rotation.
+//
+// The keyboard icon toggles squeekboard through the same texp-vk path as
+// SUPER+U / the bottom-edge swipe and polls squeekboard's D-Bus .Visible so
+// the highlight always agrees with reality.
 //
 // Window targets are touch-first (Hyprland does not focus on touch tap):
 // each action targets the window under the LAST TOUCH, recorded by the
@@ -31,6 +37,15 @@ Panel {
   property string wsLayout: "dwindle"
   property bool showMoveGrid: false
 
+  // Squeekboard visibility, read from its D-Bus .Visible property — the same
+  // source texp-vk uses — so the icon agrees with SUPER+U and the swipe.
+  property bool vkVisible: false
+
+  function toggleVk() {
+    vkCmd.command = ["texp-vk", "toggle"]
+    vkCmd.running = true
+  }
+
   function runAction(args) {
     actProc.command = args
     actProc.running = true
@@ -41,22 +56,46 @@ Panel {
 
   Process { id: actProc }
 
-  implicitWidth: button.implicitWidth
-  implicitHeight: button.implicitHeight
+  implicitWidth: row.implicitWidth
+  implicitHeight: row.implicitHeight
 
-  WidgetButton {
-    id: button
+  Row {
+    id: row
     anchors.centerIn: parent
-    bar: root.bar
-    text: root.tablet ? "\uF10A" : "\uF109"   // fa-tablet(竖平板) / fa-laptop (both verified present)
-    active: root.opened || root.tablet
-    tooltipText: root.tablet
-      ? "Window manage: close / move workspace / layout"
-      : "Laptop mode — open for Tablet mode"
+    spacing: Style.spacing.xs
 
-    onPressed: function(btn) {
-      if (btn === Qt.RightButton && root.service) root.service.cycleRotationPreset()
-      else root.toggle()
+    // Virtual keyboard show/hide — top-bar icon. Routes through texp-vk
+    // toggle (reads squeekboard state, starts it on demand): the same path
+    // as SUPER+U and the bottom-edge up-swipe.
+    WidgetButton {
+      id: vkButton
+      bar: root.bar
+      text: "\uF11C"            // fa-keyboard (glyph covered by the bar font, verified)
+      active: root.vkVisible
+      tooltipText: root.vkVisible
+        ? "Hide virtual keyboard (Super+U)"
+        : "Show virtual keyboard (Super+U)"
+      onPressed: function() {
+        root.toggleVk()
+        // repaint the state quickly after a toggle, then fall back to the slow poll
+        vkRefreshTimer.interval = 350
+        vkRefreshTimer.restart()
+      }
+    }
+
+    WidgetButton {
+      id: button
+      bar: root.bar
+      text: root.tablet ? "\uF10A" : "\uF109"   // fa-tablet(竖平板) / fa-laptop (both verified present)
+      active: root.opened || root.tablet
+      tooltipText: root.tablet
+        ? "Window manage: close / move workspace / layout"
+        : "Laptop mode — open for Tablet mode"
+
+      onPressed: function(btn) {
+        if (btn === Qt.RightButton && root.service) root.service.cycleRotationPreset()
+        else root.toggle()
+      }
     }
   }
 
@@ -255,5 +294,31 @@ Panel {
     }
   }
 
-  Component.onCompleted: console.log("MAXT-WIDGET-ONLINE v0.6 mode=" + (root.tablet ? "tablet" : "laptop"))
+  // -------- virtual keyboard: toggle process + D-Bus visibility poll
+  Process {
+    id: vkCmd
+  }
+
+  Process {
+    id: vkProbe
+    command: ["busctl", "--user", "get-property",
+              "sm.puri.OSK0", "/sm/puri/OSK0", "sm.puri.OSK0", "Visible"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.vkVisible = /true/.test(text || "")
+    }
+  }
+
+  Timer {
+    id: vkRefreshTimer
+    interval: 1500
+    running: true
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: {
+      if (!vkProbe.running) vkProbe.running = true
+    }
+  }
+
+  Component.onCompleted: console.log("MAXT-WIDGET-ONLINE v0.7 mode=" + (root.tablet ? "tablet" : "laptop"))
 }
