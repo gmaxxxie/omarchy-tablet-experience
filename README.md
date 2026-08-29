@@ -12,7 +12,7 @@ Project home for building a **Laptop / Tablet mode** extension on Omarchy 4.0.1 
 | 0 | Hardware/software audit | ✅ `AUDIT.md` |
 | 1 | Touchscreen basic support | ✅ recognized + enabled; bar-touch issue **resolved via reboot** (runtime wedge, see `DEBUG-TOUCH-BAR.md`) |
 | 2 | Native workspace swipe | ✅ edge-swipe verified working (user-tested), `gestures:workspace_swipe_touch=true` |
-| 3 | Input method (Chinese) | ✅ fcitx5 + Rime + Wanxiang installed & deployed (see below) |
+| 3 | Input method (Chinese) | ✅ fcitx5 + Rime + Wanxiang deployed + **LTS gram 语言模型已装入** (~400MB, 无 sudo) |
 | 4 | Virtual keyboard | 🟡 squeekboard (extra) core path **working**: D-Bus toggle ✓, bottom-edge up-swipe show ✓ (user-tested), `SUPER+U` bind ✓; pending autostart + touch/Chinese input verification |
 | 5–11 | rotation / state / UI / auto-switch | 🟡 P5 ✅ · P7/8 ✅ · P6/9/10 wired on disk (auto-orient + kb watcher + auto-switch, opt-in) ⏳ activate at next login |
 | 12 | **Hardware full bring-up (esp. camera)** | 🟡 camera **verified via UVC** (RGB MJPG + IR, see `PHASE12-HARDWARE.md`); IPU6 CSI confirmed dead end. libcamera now installed → browser test pending relogin. Fingerprint enrolled+live, BT scan verified, audio sinks/sources present |
@@ -112,12 +112,22 @@ relogin/restart so WirePlumber picks the UVC device up.**
 
 ## Next actions
 
+**Done this round (2026-08-29):** Wanxiang LTS gram 语言模型 installed —
+`~/.local/share/fcitx5/rime/wanxiang-lts-zh-hans.gram` (420MB, from
+`amzxyz/RIME-LMDG` release `LTS`), fcitx5 restarted, the `error opening gram
+db` journal error is gone, `rime_deployer --build` clean. No sudo needed.
+Remaining optional sudo items:
+
+    sudo pacman -S gst-plugins-good                                    # v4l2src for gst
+    printf 'blacklist intel-ipu6\nblacklist intel-ipu6-isys\n' | \
+      sudo tee /etc/modprobe.d/blacklist-ipu6.conf                     # drop 64 junk video nodes (next boot)
+
 0. **🎯 IMPORTANT — relogin to activate: the plugin's new v0.2.0 code (auto-orient, keyboard watcher, auto-switch) only loads on a fresh omarchy-shell (hot reload doesn't swap service QML — see AUDIT).** At that point the bar button, camera (wireplumber), gestures autostart, and plugin state all come up together.
 1. **After relogin:** verify `tablet-experience Service LOADED v2` in journal; test `SUPER+SHIFT+R` rotation cycle + touch mapping; bar button left/right click; `SUPER+SHIFT+U`; menu → Tablet; then opt-in `omarchy-shell maxt.tablet-experience setAutoOrient on` + `setAutoSwitch on` (calibrate with `omarchy-orient --watch` first, then `setMode tablet`).
 2. **Camera:** webcamtests.com in Chromium (libcamera now present after relogin).
 3. **squeekboard typing + Rime** (`nihao` → candidates) — Phase 4 verification.
 4. **User device tests:** fingerprint unlock; BT pair; speaker/mic.
-5. **Optional:** `gst-plugins-good` for gst pipelines; blacklist `intel-ipu6` modules to drop 64 junk /dev/video nodes; download Wanxiang LTS `gram` db to silence fcitx5 warning + better prediction.
+5. **Optional:** `gst-plugins-good` for gst pipelines; blacklist `intel-ipu6` modules to drop 64 junk /dev/video nodes *(both need one sudo line — see below)*; ~~download Wanxiang LTS gram~~ ✅ **done 2026-08-29 (400MB, no sudo)**.
 6. Later: 11 gestures, plugin polish (OSD mode glyphs, panel), auto-switch tuning.
 
 ## Repository layout

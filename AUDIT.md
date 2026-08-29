@@ -289,10 +289,16 @@ archived `plugin-source/`): `service` + `bar-widget` kinds.
   code only activates on a full omarchy-shell restart (next login). Offline
   validation path that DOES work: `quickshell -p <Service.qml>` (parsed +
   instantiated cleanly, `Configuration Loaded`).
-- **IME note**: fcitx5 logs repeated `error opening gram db
-  wanxiang-lts-zh-hans.gram` — the Wanxiang LTS language-model gram file is
-  NOT shipped in the deployment (needs separate download from wanxiang
-  GitHub releases; large). TODO, non-blocking for pinyin typing.
+- **IME note**: fcitx5 logged repeated `error opening gram db
+  wanxiang-lts-zh-hans.gram` — **FIXED 2026-08-29**: downloaded the LTS
+  gram (420MB) from `amzxyz/RIME-LMDG` release `LTS` into
+  `~/.local/share/fcitx5/rime/wanxiang-lts-zh-hans.gram`, restarted
+  `omarchy-fcitx5.service`; the error is gone and `rime_deployer --build`
+  runs clean (language-model prediction now active; no sudo used).
+  Remaining (sudo): optional `gst-plugins-good` (v4l2src) and
+  `/etc/modprobe.d/blacklist-ipu6.conf` (`blacklist intel-ipu6` +
+  `intel-ipu6-isys`) to remove the 64 junk isys video nodes (next boot;
+  live unload blocked by PipeWire holding the nodes).
 
 Cleared by controlled experiments: `gestures:workspace_swipe_touch` (off → no change), fcitx5 (fully stopped → no change), touch device hardware (raw coords verified correct), fonts/Rime.
 
