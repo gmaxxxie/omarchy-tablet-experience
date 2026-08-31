@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "maxt.tablet-experience",
   "name": "Tablet Experience",
-  "version": "0.7.0",
+  "version": "0.7.2",
   "author": "maxt",
   "license": "MIT",
-  "description": "Laptop/Tablet mode for detachable 2-in-1s: sensor-following rotation, virtual-keyboard gestures + top-bar show/hide toggle, keyboard auto mode-switch, and a tablet window-manage popup (close / move-to-workspace / layout).",
+  "description": "Laptop/Tablet mode for detachable 2-in-1s: sensor-following rotation, virtual-keyboard gestures + top-bar show/hide toggle (tablet only), keyboard auto mode-switch, laptop-mode display reset, and a tablet window-manage popup (close / move-to-workspace / layout).",
   "kinds": [
     "service",
     "bar-widget"

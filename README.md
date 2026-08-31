@@ -18,7 +18,7 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   tablet popup (icon-only, replaces the old numeric picker). Touch
   calibration is rotated along with the screen (Hyprland does not do this
   itself).
-- **Virtual keyboard** — squeekboard via `SUPER+U`, a bottom-edge up-swipe, or the keyboard icon in the top bar (live show/hide state).
+- **Virtual keyboard** — squeekboard via `SUPER+U`, a bottom-edge up-swipe, or the **tablet-mode-only** keyboard icon in the top bar (live show/hide state).
   (the `texp-vk` gesture daemon).
 - **Multi-touch gestures** (`texp-touch`, passive evdev listener, no grab) —
   2-finger tap: close panels/window under finger · 2-finger swipe left/right:
@@ -82,7 +82,7 @@ verify with `install.sh --verify`.
 |---|---|
 | Toggle Laptop/Tablet mode | `SUPER+SHIFT+U` (or bar button, left click) |
 | Next rotation preset | `SUPER+SHIFT+R` (or bar button, right click) |
-| Virtual keyboard | `SUPER+U` · bottom-edge up-swipe · **keyboard icon in the bar** (click to show/hide, highlighted while visible) |
+| Virtual keyboard | `SUPER+U` · bottom-edge up-swipe · **keyboard icon in the bar, tablet mode only** (click to show/hide, highlighted while visible) |
 | Close panels / touched window | 2-finger tap |
 | Previous / next workspace | 2-finger swipe left / right |
 | Omarchy menu | 2-finger swipe down |

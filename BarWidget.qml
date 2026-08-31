@@ -4,9 +4,9 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// Tablet Experience — bar widget (v0.7): always-mounted entry point with a
-// virtual-keyboard toggle icon (show/hide squeekboard, live state highlight)
-// plus the window-manage popup.
+// Tablet Experience — bar widget (v0.8): always-mounted entry point with a
+// virtual-keyboard toggle icon (show/hide squeekboard, live state highlight,
+// tablet mode only) plus the window-manage popup.
 //
 // The buttons are always visible so there is always an entry point: laptop
 // mode shows the mode label and the popup only offers Laptop/Tablet;
@@ -64,12 +64,14 @@ Panel {
     anchors.centerIn: parent
     spacing: Style.spacing.xs
 
-    // Virtual keyboard show/hide — top-bar icon. Routes through texp-vk
-    // toggle (reads squeekboard state, starts it on demand): the same path
-    // as SUPER+U and the bottom-edge up-swipe.
+    // Virtual keyboard show/hide — top-bar icon, TABLET MODE ONLY (in laptop
+    // mode the physical keyboard is docked, so the icon stays hidden). Routes
+    // through texp-vk toggle (reads squeekboard state, starts it on demand):
+    // the same path as SUPER+U and the bottom-edge up-swipe.
     WidgetButton {
       id: vkButton
       bar: root.bar
+      visible: root.tablet       // hide when the hardware keyboard is docked
       text: "\uF11C"            // fa-keyboard (glyph covered by the bar font, verified)
       active: root.vkVisible
       tooltipText: root.vkVisible
@@ -312,7 +314,7 @@ Panel {
   Timer {
     id: vkRefreshTimer
     interval: 1500
-    running: true
+    running: root.tablet        // icon hidden in laptop mode — nothing to poll
     repeat: true
     triggeredOnStart: true
     onTriggered: {

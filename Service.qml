@@ -53,6 +53,10 @@ Item {
   // True while a relative (⟲/⟳) rotation is in flight, so its stdout result
   // updates the persisted preset instead of being ignored.
   property bool pendingRelative: false
+  // Set when we entered laptop mode and still owe the display its reset to
+  // the default 0° landscape — deferred until the rotation process is idle so
+  // a rotation still in flight from tablet mode cannot swallow the reset.
+  property bool pendingLaptopReset: false
 
   PersistentProperties {
     id: persisted
@@ -147,6 +151,17 @@ Item {
   function rotateLeft() { rotateStep("next") }
   function rotateRight() { rotateStep("prev") }
 
+  // Runs the deferred laptop-mode display reset once the rotation process
+  // is idle. texp-rotate is idempotent, so re-applying transform 0 (and the
+  // matching touch-device calibration) is harmless even if already at 0°.
+  function tryLaptopReset() {
+    if (!root.pendingLaptopReset || root.isTabletMode) return
+    if (rotateProcess.running) return
+    root.pendingLaptopReset = false
+    rotateProcess.command = ["texp-rotate", "-s", "0"]
+    rotateProcess.running = true
+  }
+
   // Idempotent side-effect pass — only runs on real transitions.
   function applyNext() {
     osd("tablet", isTabletMode ? "Tablet mode" : "Laptop mode")
@@ -155,11 +170,10 @@ Item {
       // face-up, so the display always returns to the default 0°
       // landscape. Silent (the mode OSD above already tells the user).
       // The tablet rotation preset/autoOrient are NOT touched — they
-      // resume on the next tablet entry.
-      if (!rotateProcess.running) {
-        rotateProcess.command = ["texp-rotate", "-s", "0"]
-        rotateProcess.running = true
-      }
+      // resume on the next tablet entry. Deferred until any rotation
+      // still in flight finishes, so the reset is never silently dropped.
+      root.pendingLaptopReset = true
+      root.tryLaptopReset()
       return
     }
     // Entering tablet: default the rotation to sensor-following (auto)
@@ -234,6 +248,8 @@ Item {
           var m = /^([0-3])\s*$/.exec(String(text || "").trim())
           if (m) persisted.tabletRotation = m[1]
         }
+        // A laptop-mode reset that had to wait for this process can start now.
+        root.tryLaptopReset()
       }
     }
   }
