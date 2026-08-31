@@ -4,7 +4,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// Tablet Experience — bar widget (v0.8): always-mounted entry point with a
+// Tablet Experience — bar widget (v1.0.0): always-mounted entry point with a
 // virtual-keyboard toggle icon (show/hide squeekboard, live state highlight,
 // tablet mode only) plus the window-manage popup.
 //
