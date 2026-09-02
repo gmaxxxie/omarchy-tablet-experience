@@ -508,19 +508,20 @@ Item {
     arrowCmd.running = true
   }
 
-  // v1.11: hide the on-screen keyboard (same D-Bus path texp-vk uses), for
+  // v1.11: hide the on-screen keyboard (texp-vk controls whichever backend
+  // is installed — wvkbd-deskintl via signals, squeekboard via D-Bus), for
   // the voice-input <-> virtual-keyboard mutual exclusion.
   function hideVk() {
-    vkCmd.command = ["busctl", "--user", "call", "sm.puri.OSK0",
-                     "/sm/puri/OSK0", "sm.puri.OSK0", "SetVisible", "b", "false"]
+    vkCmd.command = ["texp-vk", "hide"]
     vkCmd.running = true
   }
 
-  // Track squeekboard visibility (bar button, SUPER+U and the 3-finger tap
-  // all route through the same D-Bus Visible property). If the keyboard
-  // comes up while voice input is open, close voice input (v1.11).
+  // Track keyboard visibility (bar button, SUPER+U and the 3-finger tap all
+  // route through texp-vk, which mirrors state to
+  // ~/.local/state/texp-vk/visible). If the keyboard comes up while voice
+  // input is open, close voice input (v1.11).
   function onVkState(out) {
-    var vis = /true/.test(String(out || ""))
+    var vis = /visible/.test(String(out || ""))
     var changed = vis !== root.vkVisible
     root.vkVisible = vis
     if (changed && vis && root.voiceInputOpen) root.hideVoiceInput()
@@ -552,8 +553,7 @@ Item {
 
   Process {
     id: vkProbe
-    command: ["busctl", "--user", "get-property", "sm.puri.OSK0",
-              "/sm/puri/OSK0", "sm.puri.OSK0", "Visible"]
+    command: ["bash", "-c", "cat \"$HOME/.local/state/texp-vk/visible\" 2>/dev/null; echo; true"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.onVkState(String(text || "").trim())

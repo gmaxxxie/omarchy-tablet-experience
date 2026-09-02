@@ -4,19 +4,26 @@ texp-vk — virtual keyboard helper for the tablet experience.
 
 Subcommands:
   daemon   Watch the Wacom touchscreen; a one-finger swipe starting in the
-           bottom strip and moving upward shows squeekboard; a downward drag
+           bottom strip and moving upward shows the keyboard; a downward drag
            in the keyboard area (while visible) dismisses it. Left/right edge
            swipes are untouched (Hyprland workspace swipe owns those).
            NOTE (v1.2.1): the daemon is NOT autostarted by default — the
            swipe gesture was disabled on request; `texp-vk toggle` (SUPER+U,
            bar button, 3-finger tap) needs no daemon. Re-enable by adding
            `o.launch_on_start("texp-vk daemon")` to autostart.lua.
-  toggle   Show/hide squeekboard now (used by Super+U). squeekboard is
-           started on demand if not running.
+  toggle   Show/hide the on-screen keyboard now (used by Super+U / bar
+           button / 3-finger tap). The keyboard is started on demand.
+  hide     Hide the keyboard (used by the voice-input <-> keyboard
+           exclusivity in Service.qml).
   debug    (hidden) log every touch decision to stderr for diagnostics.
 
-State is read from squeekboard's own D-Bus property .Visible, so the
-shortcut and the gesture always agree with reality.
+Keyboard backend (v1.12): primary is **wvkbd-deskintl** — wlroots-native,
+with Ctrl / Super / Alt / Shift / AltGr, F1-F12, a full number row (Chinese
+candidate selection) and arrows, sized for the tablet. squeekboard is used
+as a fallback when wvkbd-deskintl is not installed. Visibility is mirrored
+to $XDG_STATE_HOME/texp-vk/visible so the shell (BarWidget / Service.qml)
+can highlight the bar icon and enforce voice-input <-> keyboard exclusivity
+without D-Bus introspection.
 
 Note: the device is opened without grab(); events are only observed, never
 consumed, so Hyprland still receives every touch.
@@ -39,8 +46,20 @@ DOWN_ZONE_RATIO = 0.68     # down-swipe allowed when keyboard is visible AND
                            #   start is below this line (keyboard top + margin)
 DOWN_THRESHOLD = 220       # downward travel (raw units) to dismiss
 COOLDOWN = 1.0             # seconds between gesture actions
-START_TIMEOUT = 6.0        # max seconds to wait for squeekboard to come up
+START_TIMEOUT = 6.0        # max seconds to wait for the keyboard to come up
 DEBUG = os.environ.get("OMARCHY_VK_DEBUG") == "1"
+
+# ---------------------------------------------------------------------------
+# Keyboard backend (v1.12): wvkbd-deskintl primary, squeekboard fallback.
+# ---------------------------------------------------------------------------
+VK_WVKBD = "wvkbd-deskintl"
+VK_SQUEEK = "squeekboard"
+STATE_DIR = os.path.join(os.environ.get(
+    "XDG_STATE_HOME", os.path.expanduser("~/.local/state")), "texp-vk")
+STATE_FILE = os.path.join(STATE_DIR, "visible")
+# wvkbd panel heights (px) — big so the keys stay comfortable on the tablet.
+VK_HEIGHT_LANDSCAPE = os.environ.get("OMARCHY_VK_HEIGHT_LANDSCAPE", "350")
+VK_HEIGHT_PORTRAIT = os.environ.get("OMARCHY_VK_HEIGHT_PORTRAIT", "350")
 
 DBUS_SVC = "sm.puri.OSK0"
 DBUS_PATH = "/sm/puri/OSK0"
@@ -53,40 +72,75 @@ def dlog(msg):
 
 
 # ---------------------------------------------------------------------------
-# D-Bus helpers (no python-dbus dependency: use busctl)
+# Keyboard control (backend-agnostic; wvkbd via signals, squeekboard via D-Bus)
 # ---------------------------------------------------------------------------
-def squeekboard_running():
-    out = subprocess.run(["busctl", "--user", "list"],
-                         capture_output=True, text=True).stdout
-    return DBUS_SVC in out
+def vk_backend():
+    """Return the binary name to control: wvkbd-deskintl if present, else
+    squeekboard."""
+    if subprocess.run(["sh", "-c", "command -v " + VK_WVKBD],
+                      capture_output=True).returncode == 0:
+        return VK_WVKBD
+    return VK_SQUEEK
+
+
+def vk_running():
+    return bool(subprocess.run(["pgrep", "-x", vk_backend()],
+                               capture_output=True).stdout.strip())
 
 
 def vk_visible():
-    if not squeekboard_running():
+    """Visibility as mirrored by us — the shell polls this file too."""
+    try:
+        return open(STATE_FILE).read().strip() == "visible"
+    except OSError:
         return False
-    out = subprocess.run(
-        ["busctl", "--user", "get-property", DBUS_SVC, DBUS_PATH,
-         DBUS_IFACE, "Visible"],
-        capture_output=True, text=True).stdout.strip()
-    m = re.search(r"\b(true|false)\b", out)
-    return m is not None and m.group(1) == "true"
+
+
+def write_state(visible):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(STATE_FILE, "w") as f:
+        f.write("visible\n" if visible else "hidden\n")
+
+
+def start_vk():
+    name = vk_backend()
+    if vk_running():
+        return name
+    if name == VK_WVKBD:
+        subprocess.run(["setsid", VK_WVKBD, "--hidden",
+                        "-H", VK_HEIGHT_PORTRAIT, "-L", VK_HEIGHT_LANDSCAPE],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       start_new_session=True)
+    else:
+        subprocess.run(["setsid", VK_SQUEEK],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       start_new_session=True)
+    deadline = time.monotonic() + START_TIMEOUT
+    while not vk_running() and time.monotonic() < deadline:
+        time.sleep(0.2)
+    return name
 
 
 def set_visible(visible):
-    if not squeekboard_running():
-        subprocess.run(["setsid", "squeekboard"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                       start_new_session=True)
-        deadline = time.monotonic() + START_TIMEOUT
-        while not squeekboard_running() and time.monotonic() < deadline:
-            time.sleep(0.2)
-    subprocess.run(["busctl", "--user", "call", DBUS_SVC, DBUS_PATH,
-                    DBUS_IFACE, "SetVisible", "b", "true" if visible else "false"],
-                   capture_output=True)
+    name = start_vk()
+    if name == VK_WVKBD:
+        # wvkbd: SIGUSR2 = show, SIGUSR1 = hide
+        subprocess.run(["pkill", "-USR2" if visible else "-USR1", "-x", VK_WVKBD],
+                       capture_output=True)
+    else:
+        subprocess.run(["busctl", "--user", "call", DBUS_SVC, DBUS_PATH,
+                        DBUS_IFACE, "SetVisible", "b",
+                        "true" if visible else "false"],
+                       capture_output=True)
+    write_state(visible)
 
 
 def toggle_vk():
     set_visible(not vk_visible())
+
+
+def hide_vk():
+    set_visible(False)
 
 
 # ---------------------------------------------------------------------------
@@ -229,5 +283,7 @@ if __name__ == "__main__":
         sys.exit(daemon())
     if cmd == "toggle":
         toggle_vk()
+    elif cmd == "hide":
+        hide_vk()
     else:
         print(__doc__)

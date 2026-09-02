@@ -523,18 +523,20 @@ Panel {
     }
   }
 
-  // -------- virtual keyboard: toggle process + D-Bus visibility poll
+  // -------- virtual keyboard: toggle process + visibility poll (v1.12)
+  // Visibility is mirrored by texp-vk to ~/.local/state/texp-vk/visible
+  // (wvkbd-deskintl primary, squeekboard fallback) — read that instead of
+  // D-Bus so the icon agrees with whichever keyboard texp-vk controls.
   Process {
     id: vkCmd
   }
 
   Process {
     id: vkProbe
-    command: ["busctl", "--user", "get-property",
-              "sm.puri.OSK0", "/sm/puri/OSK0", "sm.puri.OSK0", "Visible"]
+    command: ["bash", "-c", "cat \"$HOME/.local/state/texp-vk/visible\" 2>/dev/null; echo; true"]
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: root.vkVisible = /true/.test(text || "")
+      onStreamFinished: root.vkVisible = /visible/.test(String(text || "").trim())
     }
   }
 

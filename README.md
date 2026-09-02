@@ -21,13 +21,16 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   with the screen (Hyprland does not do this itself). **Selecting Laptop
   mode always returns the display to the default 0° landscape** — even
   mid-rotation, the reset is queued until the current rotation finishes.
-- **Virtual keyboard** — squeekboard via `SUPER+U`, the **tablet bar button**
-  (live show/hide state), or a 3-finger tap (`texp-touch`). **v1.7: the
-  keyboard carries a full number row** (custom `us.yaml`/`us_wide.yaml`
-  layout) so **Chinese IME candidates can be picked with the digit keys**
-  (fcitx5/Rime selects 1-9). The bottom-edge up-swipe gesture (texp-vk
-  daemon) is **disabled by default since v1.2.1**; re-enable by adding
-  `o.launch_on_start("texp-vk daemon")` to
+- **Virtual keyboard (v1.12: wvkbd-deskintl)** — squeekboard via `SUPER+U`,
+  the **tablet bar button** (live show/hide state) or a 3-finger tap
+  (`texp-touch`). Since v1.12 the keyboard is **wvkbd-deskintl** — a
+  wlroots-native keyboard that carries **Ctrl / Super / Alt / Shift / AltGr**,
+  **F1-F12**, a **number row** (Chinese candidate selection) and **arrows**,
+  sized for the tablet (squeekboard with its number row stays as the
+  fallback). So the keyboard-command shortcuts Omarchy / AI terminals expect
+  are available on the touchscreen too. The bottom-edge up-swipe gesture
+  (texp-vk daemon) is **disabled by default since v1.2.1**; re-enable by
+  adding `o.launch_on_start("texp-vk daemon")` to
   `~/.config/hypr/autostart.lua`. `install.sh` grants the desktop user evdev
   access (udev `uaccess` rule + `input` group) so the gesture daemons can
   read the touchscreen after reboots.

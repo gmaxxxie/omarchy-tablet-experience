@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# ============================================================================
+# texp-install-wvkbd — build & install wvkbd-deskintl into ~/.local/bin
+# (best-effort). The tablet experience's virtual keyboard (v1.12) prefers
+# wvkbd-deskintl because it carries the Ctrl / Super / Alt / Shift / AltGr
+# modifiers, F1-F12, a full number row (Chinese candidates) and arrows —
+# i.e. the keys you need for AI-terminal keyboard shortcuts on Omarchy.
+#
+# The Arch AUR `wvkbd` package ships only the phone-style `wvkbd-mobintl`
+# (no Super/Alt/Ctrl), so this helper builds the deskintl variant from the
+# upstream source tarball and installs just the binary — no sudo needed.
+# squeekboard remains texp-vk's fallback when this is not run / fails.
+#
+# Build deps (only if missing): cairo pango wayland libxkbcommon scdoc
+#   sudo pacman -S --needed cairo pango wayland libxkbcommon scdoc
+# Usage:
+#   ./texp-install-wvkbd              build & install (best-effort)
+#   ./texp-install-wvkbd --dry-run    preview only
+# ============================================================================
+set -euo pipefail
+
+WIDTH="${OMARCHY_VK_HEIGHT_LANDSCAPE:-350}"
+VERSION="0.20"
+URL="https://git.sr.ht/~proycon/wvkbd/archive/v${VERSION}.tar.gz"
+BIN="${BIN_DIR:-$HOME/.local/bin}"
+DRY_RUN=0
+[ "${1:-}" = "--dry-run" ] && DRY_RUN=1
+
+log()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33mWARN:\033[0m %s\n' "$*" >&2; }
+run()  { if [ "$DRY_RUN" -eq 1 ]; then printf '    would run: %s\n' "$*"; else "$@"; fi }
+
+[ "$DRY_RUN" -eq 1 ] && log "DRY RUN — nothing will be changed"
+
+# Already installed?
+if command -v wvkbd-deskintl >/dev/null 2>&1 || [ -x "$BIN/wvkbd-deskintl" ]; then
+  log "wvkbd-deskintl already present: $(command -v wvkbd-deskintl || echo "$BIN/wvkbd-deskintl")"
+  exit 0
+fi
+
+# Build prerequisites
+missing=()
+for pc in cairo pango wayland-client xkbcommon; do
+  pkg-config --exists "$pc" 2>/dev/null || missing+=("$pc")
+done
+if [ "${#missing[@]}" -gt 0 ]; then
+  warn "missing build deps: ${missing[*]}"
+  warn "install with:  sudo pacman -S --needed cairo pango wayland libxkbcommon scdoc"
+  warn "until then texp-vk will fall back to squeekboard"
+  [ "$DRY_RUN" -eq 1 ] || exit 1
+fi
+for tool in make cc curl; do
+  command -v "$tool" >/dev/null 2>&1 || { warn "missing tool: $tool"; exit 1; }
+done
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+log "downloading wvkbd v${VERSION} ($URL)"
+run curl -fsSL -o "$TMP/wvkbd.tar.gz" "$URL"
+run tar -xzf "$TMP/wvkbd.tar.gz" -C "$TMP"
+SRC="$(find "$TMP" -maxdepth 1 -type d -name 'wvkbd*' | head -1)"
+
+log "building deskintl layout (Ctrl/Super/Alt/Shift + F-keys + numbers + arrows)"
+( cd "$SRC" && run make LAYOUT=deskintl )
+
+run mkdir -p "$BIN"
+run install -m 0755 "$SRC/wvkbd-deskintl" "$BIN/wvkbd-deskintl"
+log "installed: $BIN/wvkbd-deskintl"
+log "texp-vk now uses wvkbd-deskintl; height is ${WIDTH}px (set OMARCHY_VK_HEIGHT_LANDSCAPE to change)"

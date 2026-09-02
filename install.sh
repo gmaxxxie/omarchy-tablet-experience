@@ -16,6 +16,7 @@
 #   2b. squeekboard layout -> number row for Chinese candidate selection
 #                        (config/squeekboard/*.yaml -> ~/.local/share/squeekboard)
 #                        + GNOME input-sources GSettings so squeekboard resolves "us"
+#                        + panel scale 1.35 so the 6-row keyboard keys stay big
 #   3. autostart hooks -> gesture + touch daemons launch on login
 #   4. optional packages: required = squeekboard iio-sensor-proxy python-evdev;
 #      --with-ime adds fcitx5-rime + CJK fonts; --with-camera adds libcamera
@@ -171,6 +172,18 @@ if [ "$VERIFY" -eq 1 ]; then
   else
     bad "gsettings input-sources not set to us — re-run install.sh"
   fi
+  if command -v gsettings >/dev/null 2>&1; then
+    case "$(gsettings get sm.puri.Squeekboard scale-in-horizontal-screen-orientation 2>/dev/null)" in
+      1.35*) ok "squeekboard panel scale = 1.35 (bigger keys)" ;;
+      *) bad "squeekboard panel scale not 1.35 — re-run install.sh" ;;
+    esac
+  fi
+  # wvkbd-deskintl (v1.12) — primary keyboard with Ctrl/Super/Alt/Shift
+  if command -v wvkbd-deskintl >/dev/null 2>&1 || [ -x "$BIN_DIR/wvkbd-deskintl" ]; then
+    ok "wvkbd-deskintl present (modifier keys for AI-terminal shortcuts)"
+  else
+    warn "wvkbd-deskintl missing — run $BIN_DIR/texp-install-wvkbd (squeekboard fallback stays)"
+  fi
 
   if [ "$FAIL" -eq 1 ]; then
     echo; echo "FAILURES FOUND — re-run: $0   (or --no-packages --dry-run to preview)"; exit 1
@@ -325,9 +338,33 @@ if command -v gsettings >/dev/null 2>&1; then
   else
     log "gsettings: input-sources already set ($cur) — leaving it"
   fi
+  # v1.11.1: squeekboard fixes its panel height (~213px), which squeezes the
+  # 6-row layout (numbers + arrows) into keys that are too small. Scale the
+  # panel up (x1.35 -> ~288px, ~48px/row) so the keys are comfortable.
+  for key in scale-in-horizontal-screen-orientation scale-in-vertical-screen-orientation; do
+    run gsettings set sm.puri.Squeekboard "$key" 1.35
+  done
+  log "gsettings: squeekboard panel scale -> 1.35 (bigger keys)"
 fi
 # Pick the new layout up now (squeekboard restarts on demand via SUPER+U).
 run pkill -x squeekboard 2>/dev/null || true
+
+# --------------------------------------------- wvkbd-deskintl (v1.12)
+# The tablet keyboard prefers wvkbd-deskintl — it has the Ctrl / Super / Alt /
+# Shift modifiers, F1-F12, a number row (Chinese candidates) and arrows that
+# squeekboard lacks (needed for AI-terminal shortcuts on Omarchy). texp-vk now
+# controls wvkbd-deskintl (signals + a state file the shell polls) and falls
+# back to squeekboard when wvkbd-deskintl is absent. Build it best-effort;
+# failure leaves the squeekboard path intact.
+if [ -x "$BIN_DIR/texp-install-wvkbd" ]; then
+  log "installing wvkbd-deskintl (best-effort; squeekboard stays as fallback)"
+  run "$BIN_DIR/texp-install-wvkbd" || warn "wvkbd-deskintl build skipped — squeekboard fallback remains"
+else
+  warn "texp-install-wvkbd missing — re-run install.sh"
+fi
+# wvkbd speaks SIGUSR1/2/RTMIN; if it is already running, restart so the new
+# binary / height applies.
+run pkill -x wvkbd-deskintl 2>/dev/null || true
 
 # --------------------------------------------------------- autostart hooks
 if [ -f "$HYPR_DIR/autostart.lua" ]; then
