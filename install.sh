@@ -13,6 +13,9 @@
 #   1. helper daemons -> ~/.local/bin/texp-{vk,rotate,orient,kbdetect,touch,close,window,bar-probe}
 #   2. Hyprland hooks  -> touch workspace swipe, SUPER+U (VK), SUPER+SHIFT+U (mode
 #                        toggle), SUPER+SHIFT+R (rotation cycle) in hyprland.lua
+#   2b. squeekboard layout -> number row for Chinese candidate selection
+#                        (config/squeekboard/*.yaml -> ~/.local/share/squeekboard)
+#                        + GNOME input-sources GSettings so squeekboard resolves "us"
 #   3. autostart hooks -> gesture + touch daemons launch on login
 #   4. optional packages: required = squeekboard iio-sensor-proxy python-evdev;
 #      --with-ime adds fcitx5-rime + CJK fonts; --with-camera adds libcamera
@@ -151,6 +154,24 @@ if [ "$VERIFY" -eq 1 ]; then
     bad "user not in group 'input' — re-run install.sh (effective next login)"
   fi
 
+  # squeekboard number-row layout (v1.7)
+  SQB_DIR="$HOME/.local/share/squeekboard/keyboards"
+  for src in "$REPO_ROOT"/config/squeekboard/*.yaml; do
+    [ -f "$src" ] || continue
+    name="$(basename "$src")"
+    if [ -f "$SQB_DIR/$name" ] && cmp -s "$src" "$SQB_DIR/$name"; then
+      ok "squeekboard layout $name (number row)"
+    else
+      bad "squeekboard layout $name missing/different — re-run install.sh"
+    fi
+  done
+  if command -v gsettings >/dev/null 2>&1 \
+      && [ "$(gsettings get org.gnome.desktop.input-sources sources 2>/dev/null)" = "[('xkb', 'us')]" ]; then
+    ok "gsettings input-sources = us (squeekboard layout name)"
+  else
+    bad "gsettings input-sources not set to us — re-run install.sh"
+  fi
+
   if [ "$FAIL" -eq 1 ]; then
     echo; echo "FAILURES FOUND — re-run: $0   (or --no-packages --dry-run to preview)"; exit 1
   fi
@@ -274,6 +295,39 @@ else
   warn "config/hypr/tablet-experience.lua missing from repo — skipping"
 fi
 append_if_missing "$HYPR_DIR/hyprland.lua" 'require("hypr.tablet-experience")'
+
+# ------------------------------------------- squeekboard layout (v1.7)
+# Give the virtual keyboard a number row for Chinese IME candidate
+# selection (fcitx5/Rime picks candidates with the digit keys). squeekboard
+# loads layouts from the user data dir BEFORE its built-in copies, so we
+# ship us.yaml / us_wide.yaml with a number row. It also reads its layout
+# name from GNOME input-sources GSettings — empty on Omarchy, which makes
+# it fall back to a layout name of "" — so set sources to the us keyboard
+# unless the user already configured it.
+log "installing squeekboard layout (number row for Chinese candidates)"
+SQB_DIR="$HOME/.local/share/squeekboard/keyboards"
+run mkdir -p "$SQB_DIR"
+for src in "$REPO_ROOT"/config/squeekboard/*.yaml; do
+  [ -f "$src" ] || continue
+  dst="$SQB_DIR/$(basename "$src")"
+  if [ -e "$dst" ] && ! cmp -s "$src" "$dst"; then
+    backup_file "$dst"
+    run rm -f "$dst"
+  fi
+  run install -m 0644 "$src" "$dst"
+  log "install: $dst"
+done
+if command -v gsettings >/dev/null 2>&1; then
+  cur="$(gsettings get org.gnome.desktop.input-sources sources 2>/dev/null || true)"
+  if [ "$cur" = "@a(ss) []" ] || [ -z "$cur" ]; then
+    run gsettings set org.gnome.desktop.input-sources sources "[('xkb', 'us')]"
+    log "gsettings: input-sources -> us (squeekboard layout name)"
+  else
+    log "gsettings: input-sources already set ($cur) — leaving it"
+  fi
+fi
+# Pick the new layout up now (squeekboard restarts on demand via SUPER+U).
+run pkill -x squeekboard 2>/dev/null || true
 
 # --------------------------------------------------------- autostart hooks
 if [ -f "$HYPR_DIR/autostart.lua" ]; then

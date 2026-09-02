@@ -22,9 +22,12 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   mode always returns the display to the default 0° landscape** — even
   mid-rotation, the reset is queued until the current rotation finishes.
 - **Virtual keyboard** — squeekboard via `SUPER+U`, the **tablet bar button**
-  (live show/hide state), or a 3-finger tap (`texp-touch`). The bottom-edge
-  up-swipe gesture (texp-vk daemon) is **disabled by default since v1.2.1**;
-  re-enable by adding `o.launch_on_start("texp-vk daemon")` to
+  (live show/hide state), or a 3-finger tap (`texp-touch`). **v1.7: the
+  keyboard carries a full number row** (custom `us.yaml`/`us_wide.yaml`
+  layout) so **Chinese IME candidates can be picked with the digit keys**
+  (fcitx5/Rime selects 1-9). The bottom-edge up-swipe gesture (texp-vk
+  daemon) is **disabled by default since v1.2.1**; re-enable by adding
+  `o.launch_on_start("texp-vk daemon")` to
   `~/.config/hypr/autostart.lua`. `install.sh` grants the desktop user evdev
   access (udev `uaccess` rule + `input` group) so the gesture daemons can
   read the touchscreen after reboots.
