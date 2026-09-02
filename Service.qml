@@ -87,6 +87,10 @@ Item {
   property bool tabletLayoutActive: false
   property var overflowItems: []
   property var tabletLayoutSnapshot: null
+  // Set after the user chooses "restore all bar icons" while still in tablet:
+  // the simplified bar must NOT re-apply until the next real mode transition
+  // (applyNext clears it), so a laptop→tablet round trip brings it back.
+  property bool restoreHeld: false
   property int liveTransform: 0
 
   // Widgets that always stay mounted, in tablet mode or not.
@@ -224,6 +228,7 @@ Item {
 
   // Idempotent side-effect pass — only runs on real transitions.
   function applyNext() {
+    root.restoreHeld = false
     osd("tablet", isTabletMode ? "Tablet mode" : "Laptop mode")
     // v1.2: tablet = simplified bar, laptop = default full bar.
     root.syncTabletLayout()
@@ -592,6 +597,7 @@ Item {
     root.tabletLayoutActive = false
     root.overflowItems = []
     root.tabletLayoutSnapshot = snap
+    root.restoreHeld = true   // don't re-pare while staying in tablet
     restoreTimer.restart()
   }
 
@@ -662,8 +668,12 @@ Item {
     var hasSnapshot = !!(cfg && cfg.bar && cfg.bar.layoutSnapshot)
     root.tabletLayoutActive = hasSnapshot
     if (root.isTabletMode) {
-      if (!hasSnapshot) root.applyTabletLayout()
-      else root.refreshOverflow()
+      if (!hasSnapshot) {
+        if (root.restoreHeld) root.refreshOverflow()   // user asked for the full bar
+        else root.applyTabletLayout()
+      } else {
+        root.refreshOverflow()
+      }
     } else if (hasSnapshot) {
       root.restoreOriginalLayout()
     }
