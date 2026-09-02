@@ -205,6 +205,24 @@ relogin/restart so WirePlumber picks the UVC device up.**
 
 ## Next actions
 
+**Done this round (2026-09-02, v1.3.0): per-icon on/off toggles + Hide/Show all.**
+
+User: "似乎没有实现；且加上隐藏的 icon 可以是 on/off 切换来是否展示；也应该也有 hide all or show all 快速全部切换"
+- Each hidden bar icon is now an on/off toggle in the ⋮ popup (✓ mark +
+  `active` highlight = on the bar; tap toggles hide/show). New service helpers
+  `hideBarWidget <id>` / `showAllBarIcons()` / `hideAllBarIcons()`; the
+  snapshot stays in shell.json during these so both directions work instantly
+  and nothing re-pares itself afterwards. Verified live: toggle weather on
+  (`center: [clock, weather]`) / off (`[clock]`), Show all → full 4/5/8 with
+  snapshot held, Hide all → pared 3/1/4, stable in tablet afterwards.
+- Also fixed the likely cause of "似乎没有实现": the plugin service QML is
+  re-instantiated by omarchy after every shell.json mutation, and the bar
+  widget cached the FIRST service instance — popup state/actions could hit a
+  stale object and appear dead. The widget now re-resolves the service every
+  1.5 s (`serviceTimer`), so the popup toggles always talk to the live one.
+
+**Done this round (2026-09-02, v1.2.2): "restore all bar icons" stays restored in tablet mode.**
+
 **Done this round (2026-09-02, v1.2.1): bottom-edge up-swipe disabled.**
 
 User request: "虚拟键盘用手指在屏幕从下往上展示的先取消吧" — the texp-vk

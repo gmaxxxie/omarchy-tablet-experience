@@ -654,10 +654,54 @@ Item {
         for (var c = 0; c < cur.length; c++) {
           if (root.entryIdOf(cur[c]) === id) { mounted = true; break }
         }
-        if (!mounted) items.push({ id: id, label: root.overflowLabel(id) })
+        items.push({ id: id, label: root.overflowLabel(id), mounted: mounted })
       }
     }
     root.overflowItems = items
+  }
+
+  // Unmount one non-essential widget (off switch). The snapshot stays intact.
+  function hideBarWidget(id) {
+    var cfg = root.shell ? root.shell.shellConfig : null
+    if (!cfg || !cfg.bar || !cfg.bar.layout || !cfg.bar.layoutSnapshot) return
+    root.deferBarMutation(function(config) {
+      var regions = ["left", "center", "right"]
+      for (var r = 0; r < regions.length; r++) {
+        var layout = config.bar.layout[regions[r]] || []
+        for (var i = 0; i < layout.length; i++) {
+          if (root.entryIdOf(layout[i]) === id) {
+            layout.splice(i, 1)
+            return
+          }
+        }
+      }
+    })
+    refreshTimer.restart()
+  }
+
+  // Show EVERY hidden non-essential widget (the full original bar, still in
+  // tablet mode). The snapshot stays put so Hide all works instantly again.
+  function showAllBarIcons() {
+    var cfg = root.shell ? root.shell.shellConfig : null
+    if (!cfg || !cfg.bar || !cfg.bar.layoutSnapshot) return
+    var snap = root.copyLayout(cfg.bar.layoutSnapshot)
+    if (!snap) return
+    root.deferBarMutation(function(config) {
+      config.bar.layout = snap
+    })
+    refreshTimer.restart()
+  }
+
+  // Hide all non-essential widgets again (re-apply the pared layout).
+  function hideAllBarIcons() {
+    var cfg = root.shell ? root.shell.shellConfig : null
+    if (!cfg || !cfg.bar || !cfg.bar.layoutSnapshot) return
+    var snap = root.copyLayout(cfg.bar.layoutSnapshot)
+    if (!snap) return
+    root.deferBarMutation(function(config) {
+      config.bar.layout = root.paredLayout(snap)
+    })
+    refreshTimer.restart()
   }
 
   // Mode-based syncing (v1.2): TABLET = simplified bar, LAPTOP = default.
@@ -803,6 +847,21 @@ Item {
     function restoreBarIcons(): string {
       root.restoreOriginalLayout()
       return root.tabletLayoutActive ? "still-tablet" : "restored"
+    }
+
+    function hideBarWidget(id: string): string {
+      root.hideBarWidget(String(id || ""))
+      return root.overflowItems.map(function(i) { return i.id }).join(",")
+    }
+
+    function showAllBarIcons(): string {
+      root.showAllBarIcons()
+      return root.overflowItems.map(function(i) { return i.id }).join(",")
+    }
+
+    function hideAllBarIcons(): string {
+      root.hideAllBarIcons()
+      return root.overflowItems.map(function(i) { return i.id }).join(",")
     }
   }
 }

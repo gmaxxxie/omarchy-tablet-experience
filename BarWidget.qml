@@ -4,7 +4,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// Tablet Experience — bar widget (v1.2.0): always-mounted entry point with an
+// Tablet Experience — bar widget (v1.3.0): always-mounted entry point with an
 // input-method (fcitx5) quick switch and a virtual-keyboard toggle icon
 // (show/hide squeekboard, live state highlight) plus the window-manage popup.
 // Both the IM switch and the keyboard icon are TABLET-MODE ONLY (in laptop
@@ -42,7 +42,7 @@ Panel {
   moduleName: "maxt.tablet-experience"
   ipcTarget: "maxt.tablet-window"
 
-  readonly property var service: bar ? bar.shell.serviceFor("maxt.tablet-experience") : null
+  property var service: bar ? bar.shell.serviceFor("maxt.tablet-experience") : null
   readonly property bool tablet: service ? service.isTabletMode : false
   readonly property var tabletRotation: service ? service.tabletRotation : "off"
 
@@ -344,22 +344,42 @@ Panel {
           delegate: Button {
             width: parent.width
             height: Style.space(36)
-            iconText: "+"
+            iconText: modelData.mounted ? "\u2713" : " "
             text: modelData.label
+            active: modelData.mounted
+            tooltipText: modelData.mounted ? "On the bar — tap to hide" : "Hidden — tap to show"
             onClicked: {
-              if (root.service) root.service.bringBackBarWidget(modelData.id)
+              if (!root.service) return
+              if (modelData.mounted) root.service.hideBarWidget(modelData.id)
+              else root.service.bringBackBarWidget(modelData.id)
               root.close()
             }
           }
         }
 
-        Button {
+        Row {
           width: parent.width
-          height: Style.space(36)
-          text: "Restore all bar icons"
-          onClicked: {
-            if (root.service) root.service.restoreBarIcons()
-            root.close()
+          spacing: Style.spacing.sm
+
+          Button {
+            width: (parent.width - parent.spacing) / 2
+            height: Style.space(36)
+            text: "Hide all"
+            tooltipText: "Hide every non-essential bar icon"
+            onClicked: {
+              if (root.service) root.service.hideAllBarIcons()
+              root.close()
+            }
+          }
+          Button {
+            width: (parent.width - parent.spacing) / 2
+            height: Style.space(36)
+            text: "Show all"
+            tooltipText: "Show every bar icon (still in tablet mode)"
+            onClicked: {
+              if (root.service) root.service.showAllBarIcons()
+              root.close()
+            }
           }
         }
       }
@@ -369,6 +389,21 @@ Panel {
         width: parent.width
         height: Style.space(24)
       }
+    }
+  }
+
+  // The plugin service QML re-instantiates after every shell.json mutation
+  // (plugin reload); keep our reference pointing at the CURRENT instance so
+  // the popup's toggle state and actions never hit a stale one.
+  Timer {
+    id: serviceTimer
+    interval: 1500
+    running: true
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: {
+      var current = bar ? bar.shell.serviceFor("maxt.tablet-experience") : null
+      if (current !== root.service) root.service = current
     }
   }
 
@@ -456,5 +491,5 @@ Panel {
     }
   }
 
-  Component.onCompleted: console.log("MAXT-WIDGET-ONLINE v1.2 mode=" + (root.tablet ? "tablet" : "laptop"))
+  Component.onCompleted: console.log("MAXT-WIDGET-ONLINE v1.3 mode=" + (root.tablet ? "tablet" : "laptop"))
 }

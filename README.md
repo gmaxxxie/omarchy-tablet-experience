@@ -34,9 +34,12 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   moves behind the plugin's **⋮ overflow popup**: quick access to the two
   tablet essentials stays on the bar (input-method EN⇄中 + virtual keyboard),
   the popup lists every hidden bar icon (tap to mount it back) plus window
-  manage & rotation. The pre-tablet layout is carried inside shell.json
-  (`bar.layoutSnapshot`, invisible to the bar), so it restores verbatim on
-  laptop and survives shell restarts and crashes.
+  manage & rotation. Each icon in the popup is an **on/off toggle** (✓ = on
+  the bar, tap to hide; empty = hidden, tap to show) and **Hide all / Show
+  all** switches the whole set instantly — all within tablet mode. The
+  pre-tablet layout is carried inside shell.json (`bar.layoutSnapshot`,
+  invisible to the bar), so it restores verbatim on laptop and survives shell
+  restarts and crashes.
 - **Input-method quick switch** — shows the active fcitx5 input method
   (EN / 中 / …) and toggles it with one tap (`fcitx5-remote -t`) — the
   convenient EN⇄中 switch the hidden fcitx5 indicator could not provide.
@@ -111,7 +114,7 @@ verify with `install.sh --verify`.
 | Next rotation preset | `SUPER+SHIFT+R` (or bar button, right click) |
 | Switch input method (EN ⇄ 中) | **bar button, tablet mode** (shows current IM) |
 | Virtual keyboard | `SUPER+U` · bottom-edge up-swipe · **tablet bar button** |
-| Hidden bar icons (tablet) | **⋮ button** → popup list; tap one to bring it back |
+| Hidden bar icons (tablet) | **⋮ button** → per-icon on/off toggles + Hide all / Show all |
 | Virtual keyboard | `SUPER+U` · **bar button (tablet)** · 3-finger tap (bottom-edge up-swipe gesture disabled by default since v1.2.1) |
 | Show/hide top bar (tablet mode) | tap the top edge / bar blank area (16 px strip when hidden, 5 px when shown) |
 | Close panels / touched window | 2-finger tap |
