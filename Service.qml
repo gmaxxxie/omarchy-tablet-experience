@@ -572,6 +572,21 @@ Item {
         implicitWidth: 0
         implicitHeight: root.barHidden ? root.stripHiddenHeight : root.stripShownHeight
 
+        // v1.8.1: the strip only arms a moment AFTER it shows, so a stray
+        // touch/pointer event landing on the top edge while the user detaches
+        // the keyboard cannot flip the top bar off as a side effect of
+        // entering tablet mode (reported: "bar disappears when I detach the
+        // keyboard"). A clean IPC tablet entry never triggered it; only the
+        // physical detach interaction does. Re-arms on every show.
+        property bool armed: false
+        onVisibleChanged: if (visible) strip.armed = false
+        Timer {
+          interval: 2000
+          running: visible
+          repeat: false
+          onTriggered: strip.armed = true
+        }
+
         Rectangle {
           anchors.fill: parent
           color: "transparent"
@@ -590,7 +605,7 @@ Item {
           }
 
           TapHandler {
-            enabled: root.isTabletMode
+            enabled: root.isTabletMode && strip.armed
             onTapped: root.toggleTopBar()
           }
         }
