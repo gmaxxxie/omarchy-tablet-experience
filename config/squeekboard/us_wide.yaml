@@ -24,12 +24,14 @@ views:
         - "a s d f g h j k l"
         - "show_upper z x c v b n m BackSpace"
         - "show_numbers preferences space . Return"
+        - "ArrowLeft ArrowRight ArrowUp ArrowDown"
     upper:
         - "1 2 3 4 5 6 7 8 9 0"
         - "Q W E R T Y U I O P"
         - "A S D F G H J K L"
         - "show_upper Z X C V B N M BackSpace"
         - "show_numbers preferences space . Return"
+        - "ArrowLeft ArrowRight ArrowUp ArrowDown"
     numbers:
         - "1 2 3 4 5 6 7 8 9 0"
         - "@ # $ % & - _ + ( )"
@@ -86,3 +88,19 @@ buttons:
         outline: "special-3"
         icon: "key-enter"
         keysym: "Return"
+    ArrowUp:
+        outline: "default"
+        label: "↑"
+        keysym: "Up"
+    ArrowDown:
+        outline: "default"
+        label: "↓"
+        keysym: "Down"
+    ArrowLeft:
+        outline: "default"
+        label: "←"
+        keysym: "Left"
+    ArrowRight:
+        outline: "default"
+        label: "→"
+        keysym: "Right"

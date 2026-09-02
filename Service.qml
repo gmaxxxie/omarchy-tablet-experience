@@ -6,16 +6,18 @@ import qs.Commons
 
 // Tablet Experience — Laptop/Tablet state machine (Phases 7–10).
 //
-// Voice input (v1.5, ⏎ v1.6, 删除/清空 v1.10): in tablet mode the bar shows
-// a mic icon that opens / closes a bottom-anchored hold-to-talk button.
-// Press & hold it -> `voxtype record start` (SIGUSR1 to the voxtype daemon),
-// release -> `voxtype record stop` (SIGUSR2), and voxtype transcribes the
-// clip and types it at the cursor (wtype, full CJK support). A button row
+// Voice input (v1.5, ⏎ v1.6, 删除/清空 v1.10, 方向板 v1.11): in tablet mode
+// the bar shows a mic icon that opens / closes a bottom-anchored hold-to-talk
+// button. Press & hold it -> `voxtype record start` (SIGUSR1 to the voxtype
+// daemon), release -> `voxtype record stop` (SIGUSR2), and voxtype transcribes
+// the clip and types it at the cursor (wtype, full CJK support). A button row
 // underneath offers 删除 (BackSpace), 清空 (select-all + delete) and ⏎ Enter
-// (Return) to fix or submit the dictated line. Live state mirrors voxtype's
-// own state file ($XDG_RUNTIME_DIR/voxtype/state), so the visuals agree with
-// the F9 / SUPER+CTRL+X hotkeys too; leaving tablet mode (or re-tapping the
-// mic icon) never strands a recording.
+// (Return) to fix or submit the dictated line. A left-side direction pad
+// (v1.11) moves the caret with ↑↓←→. Voice input and the virtual keyboard are
+// mutually exclusive (v1.11): opening one closes the other. Live state mirrors
+// voxtype's own state file ($XDG_RUNTIME_DIR/voxtype/state), so the visuals
+// agree with the F9 / SUPER+CTRL+X hotkeys too; leaving tablet mode (or
+// re-tapping the mic icon) never strands a recording.
 //
 // Persistent state (survives shell reloads via PersistentProperties):
 //   mode             "laptop" | "tablet"
@@ -63,7 +65,7 @@ import qs.Commons
 Item {
   id: root
 
-  Component.onCompleted: console.log("tablet-experience Service LOADED v1.10")
+  Component.onCompleted: console.log("tablet-experience Service LOADED v1.11")
 
   property var shell: null
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
@@ -140,6 +142,8 @@ Item {
   property bool recording: false
   property bool transcribing: false
   property bool voxtypeUp: false
+  // v1.11: on-screen keyboard visibility (voice input <-> VK are exclusive).
+  property bool vkVisible: false
   property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR") || ""
   readonly property string voxtypeStateDir: root.runtimeDir + "/voxtype"
   readonly property string voxtypeStateFile: root.voxtypeStateDir + "/state"
@@ -402,6 +406,7 @@ Item {
       root.pollKeyboard()   // Phase 9 presence tracking (auto-switch opt-in)
       root.pollTransform()  // laptop-reset latch (restart edge)
       root.pollVoxtype()    // v1.5 voice-input state (voxtypeUp / recording)
+      root.pollVk()         // v1.11 VK visibility (voice <-> VK exclusivity)
       root.syncTabletLayout()  // v1.2: tablet/laptop bar declutter, self-healing
     }
   }
@@ -444,6 +449,9 @@ Item {
   function showVoiceInput() {
     root.voiceInputOpen = true
     root.pollVoxtype()   // refresh daemon state the moment it appears
+    // v1.11: voice input and the virtual keyboard are mutually exclusive —
+    // opening one closes the other.
+    if (root.vkVisible) root.hideVk()
   }
 
   function hideVoiceInput() {
@@ -493,6 +501,35 @@ Item {
     clrCmd.running = true
   }
 
+  // v1.11: cursor arrows for the left-side direction pad — move the caret
+  // through the dictated text (wtype -k Left/Right/Up/Down).
+  function sendArrow(dir) {
+    arrowCmd.command = ["wtype", "-k", dir]
+    arrowCmd.running = true
+  }
+
+  // v1.11: hide the on-screen keyboard (same D-Bus path texp-vk uses), for
+  // the voice-input <-> virtual-keyboard mutual exclusion.
+  function hideVk() {
+    vkCmd.command = ["busctl", "--user", "call", "sm.puri.OSK0",
+                     "/sm/puri/OSK0", "sm.puri.OSK0", "SetVisible", "b", "false"]
+    vkCmd.running = true
+  }
+
+  // Track squeekboard visibility (bar button, SUPER+U and the 3-finger tap
+  // all route through the same D-Bus Visible property). If the keyboard
+  // comes up while voice input is open, close voice input (v1.11).
+  function onVkState(out) {
+    var vis = /true/.test(String(out || ""))
+    var changed = vis !== root.vkVisible
+    root.vkVisible = vis
+    if (changed && vis && root.voiceInputOpen) root.hideVoiceInput()
+  }
+
+  function pollVk() {
+    if (!vkProbe.running) vkProbe.running = true
+  }
+
   // Voxtype state names: idle / recording / transcribing / outputting /
   // streaming / eager-recording (src/state.rs, written to the state file).
   function updateVoxtypeState(name) {
@@ -510,6 +547,18 @@ Item {
   Process { id: enterCmd }
   Process { id: delCmd }
   Process { id: clrCmd }
+  Process { id: arrowCmd }
+  Process { id: vkCmd }
+
+  Process {
+    id: vkProbe
+    command: ["busctl", "--user", "get-property", "sm.puri.OSK0",
+              "/sm/puri/OSK0", "sm.puri.OSK0", "Visible"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.onVkState(String(text || "").trim())
+    }
+  }
 
   // ------------------------------------------------- tablet-mode bar toggle
 
@@ -792,6 +841,106 @@ Item {
         // If the surface goes away mid-press (mode switch / shell reload),
         // never strand voxtype recording.
         Component.onDestruction: if (root.holding || root.recording) root.stopRecording()
+      }
+    }
+  }
+
+  // Direction pad (v1.11): a left-side cursor-key cluster shown with voice
+  // input — move the caret to fix the dictated text (wtype -k Left/Right/
+  // Up/Down). Anchored left-edge only (no top/bottom) -> floats vertically
+  // centered on the left, away from the bottom-right voice bar.
+  Variants {
+    model: Quickshell.screens
+    delegate: Component {
+      PanelWindow {
+        id: dirPad
+        required property var modelData
+        screen: modelData
+        visible: root.isTabletMode && root.voiceInputOpen
+        color: "transparent"
+        WlrLayershell.namespace: "maxt-tablet-dirpad"
+        WlrLayershell.layer: WlrLayer.Top
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        exclusionMode: ExclusionMode.Ignore
+
+        anchors { left: true }
+        margins { left: 24 }
+        implicitWidth: 168
+        implicitHeight: 168
+
+        // 2x2 arrow grid: left/right on top (most used for editing), up/down
+        // below (move between lines).
+        Grid {
+          anchors.centerIn: parent
+          columns: 2
+          rowSpacing: 8
+          columnSpacing: 8
+
+          Rectangle {
+            width: 80
+            height: 80
+            radius: 16
+            color: Util.alpha(Color.accent, 0.12)
+            border.width: 1
+            border.color: Util.alpha(Color.foreground, 0.3)
+            Text {
+              anchors.centerIn: parent
+              text: "\u2190"        // ←
+              color: Color.foreground
+              font.family: Style.font.family
+              font.pixelSize: 30
+            }
+            TapHandler { onTapped: root.sendArrow("Left") }
+          }
+          Rectangle {
+            width: 80
+            height: 80
+            radius: 16
+            color: Util.alpha(Color.accent, 0.12)
+            border.width: 1
+            border.color: Util.alpha(Color.foreground, 0.3)
+            Text {
+              anchors.centerIn: parent
+              text: "\u2192"        // →
+              color: Color.foreground
+              font.family: Style.font.family
+              font.pixelSize: 30
+            }
+            TapHandler { onTapped: root.sendArrow("Right") }
+          }
+          Rectangle {
+            width: 80
+            height: 80
+            radius: 16
+            color: Util.alpha(Color.accent, 0.12)
+            border.width: 1
+            border.color: Util.alpha(Color.foreground, 0.3)
+            Text {
+              anchors.centerIn: parent
+              text: "\u2191"        // ↑
+              color: Color.foreground
+              font.family: Style.font.family
+              font.pixelSize: 30
+            }
+            TapHandler { onTapped: root.sendArrow("Up") }
+          }
+          Rectangle {
+            width: 80
+            height: 80
+            radius: 16
+            color: Util.alpha(Color.accent, 0.12)
+            border.width: 1
+            border.color: Util.alpha(Color.foreground, 0.3)
+            Text {
+              anchors.centerIn: parent
+              text: "\u2193"        // ↓
+              color: Color.foreground
+              font.family: Style.font.family
+              font.pixelSize: 30
+            }
+            TapHandler { onTapped: root.sendArrow("Down") }
+          }
+        }
       }
     }
   }

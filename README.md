@@ -47,15 +47,17 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
 - **Input-method quick switch** — shows the active fcitx5 input method
   (EN / 中 / …) and toggles it with one tap (`fcitx5-remote -t`) — the
   convenient EN⇄中 switch the hidden fcitx5 indicator could not provide.
-- **Voice input (v1.5, ⏎ v1.6, Delete/Clear v1.10, tablet mode)** — a **mic
-  icon** in the tablet bar opens a bottom hold-to-talk button (tap the icon
-  again to close it). Press & hold the button to dictate through **voxtype**
-  (local ASR, no cloud), release to transcribe and type the text at your
-  cursor — full CJK support via `wtype`. A neat English button row
-  underneath offers **Delete** (BackSpace), **Clear** (select-all + delete)
-  and **Enter** (Return) to fix or submit the dictated line. Live
-  recording / transcribing state is shown on the button and reflects the
-  F9 / SUPER+CTRL+X hotkeys too.
+- **Voice input (v1.5, ⏎ v1.6, Delete/Clear v1.10, direction pad v1.11,
+  tablet mode)** — a **mic icon** in the tablet bar opens a bottom hold-to-talk
+  button (tap the icon again to close it). Press & hold the button to dictate
+  through **voxtype** (local ASR, no cloud), release to transcribe and type
+  the text at your cursor — full CJK support via `wtype`. A neat English
+  button row underneath offers **Delete** (BackSpace), **Clear** (select-all
+  + delete) and **Enter** (Return) to fix or submit the dictated line, and a
+  **left-side direction pad (↑↓←→)** moves the caret for editing. Voice input
+  and the virtual keyboard are **mutually exclusive** (v1.11): opening one
+  closes the other. Live recording / transcribing state is shown on the
+  button and reflects the F9 / SUPER+CTRL+X hotkeys too.
 - **Top-bar tap toggle (tablet mode)** — no mouse means no hover, so a thin
   full-width edge strip above the bar toggles it: tap when hidden → show,
   tap again → hide (drives Omarchy's own `bar-off` flag).
@@ -127,7 +129,7 @@ verify with `install.sh --verify`.
 | Toggle Laptop/Tablet mode | `SUPER+SHIFT+U` (or bar button, left click) |
 | Next rotation preset | `SUPER+SHIFT+R` (or bar button, right click) |
 | Switch input method (EN ⇄ 中) | **bar button, tablet mode** (shows current IM) |
-| Voice input (hold to talk) | **mic bar button (tablet)** → bottom button: press & hold to record, release to transcribe; **Delete / Clear / Enter** to fix or submit; mic icon again to close |
+| Voice input (hold to talk) | **mic bar button (tablet)** → bottom button: press & hold to record, release to transcribe; **Delete / Clear / Enter** to fix or submit; **left-side ↑↓←→ pad** to move the caret; mic icon again to close |
 | Window manage (close / move) | **window bar button (tablet)** → Close ✕ / Move to Workspace 1–10 |
 | Virtual keyboard | `SUPER+U` · bottom-edge up-swipe · **tablet bar button** |
 | Hidden bar icons (tablet) | **⋮ button** → per-icon on/off toggles + Hide all / Show all |
