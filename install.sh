@@ -18,7 +18,8 @@
 #                        + GNOME input-sources GSettings so squeekboard resolves "us"
 #                        + panel scale 1.35 so the 6-row keyboard keys stay big
 #   3. autostart hooks -> gesture + touch daemons launch on login
-#   4. optional packages: required = squeekboard iio-sensor-proxy python-evdev;
+#   4. optional packages: required = squeekboard iio-sensor-proxy python-evdev
+#                        ydotool (two-finger tap = right click, v1.12.2);
 #      --with-ime adds fcitx5-rime + CJK fonts; --with-camera adds libcamera
 #
 # Everything is reversible: modified files get *.bak.<timestamp> backups and
@@ -220,7 +221,7 @@ append_if_missing() { # $1 file  $2 exact line
 # ---------------------------------------------------------------- packages
 if [ "$DO_PACKAGES" -eq 1 ]; then
   if command -v pacman >/dev/null 2>&1; then
-    REQUIRED=(squeekboard iio-sensor-proxy python-evdev)
+    REQUIRED=(squeekboard iio-sensor-proxy python-evdev ydotool)
     [ "$WITH_IME" -eq 1 ]    && REQUIRED+=(fcitx5-rime librime noto-fonts-cjk wqy-microhei)
     [ "$WITH_CAMERA" -eq 1 ] && REQUIRED+=(libcamera)
     MISSING=()
@@ -232,7 +233,7 @@ if [ "$DO_PACKAGES" -eq 1 ]; then
       log "packages already installed"
     fi
   else
-    warn "pacman not found — install dependencies manually: ${REQUIRED[*]:-squeekboard iio-sensor-proxy python-evdev}"
+    warn "pacman not found — install dependencies manually: ${REQUIRED[*]:-squeekboard iio-sensor-proxy python-evdev ydotool}"
   fi
 else
   log "skipping packages (--no-packages)"
@@ -294,6 +295,31 @@ else
   log "adding $USER to group 'input' (applies at next login/reboot)"
   run sudo usermod -aG input "$USER"
 fi
+
+# ------------------------------------------- ydotool (v1.12.2)
+# Two-finger tap on the touchscreen = RIGHT CLICK (context menu / AI-terminal
+# paste). texp-touch injects it via ydotool (uinput), so ydotoold must be
+# running and /dev/uinput must be accessible to the input group.
+UINPUT_RULE=/etc/udev/rules.d/99-tablet-experience-uinput.rules
+UINPUT_RULE_CONTENT='# Tablet Experience (maxt.tablet-experience) - let the input
+# group use /dev/uinput so ydotool (right-click injection) can open it.
+KERNEL=="uinput", GROUP="input", MODE="0660", TAG+="uaccess"
+'
+if [ -f "$UINPUT_RULE" ] && grep -q 'KERNEL=="uinput"' "$UINPUT_RULE"; then
+  log "uinput udev rule already present: $UINPUT_RULE"
+else
+  log "installing uinput udev rule: $UINPUT_RULE"
+  run sh -c 'printf "%s\n" "$1" | sudo tee "$2" >/dev/null' _ "$UINPUT_RULE_CONTENT" "$UINPUT_RULE"
+  run sudo udevadm control --reload
+fi
+# Current session may not have the new input group yet (adds apply at next
+# login); the systemd user service starts ydotoold then. For right now, start
+# it under the input group best-effort (ignored if it fails / already running).
+run systemctl --user enable ydotool.service 2>/dev/null || true
+if ! pgrep -x ydotoold >/dev/null 2>&1; then
+  ( newgrp input -c 'ydotoold' ) </dev/null >/dev/null 2>&1 &
+fi
+log "ydotool: daemon + service enabled (two-finger tap = right click)"
 
 # ------------------------------------------------------- Hyprland hooks
 log "wiring Hyprland config ($HYPR_DIR)"

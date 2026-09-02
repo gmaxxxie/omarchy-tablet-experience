@@ -65,8 +65,8 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   full-width edge strip above the bar toggles it: tap when hidden → show,
   tap again → hide (drives Omarchy's own `bar-off` flag).
 - **Multi-touch gestures** (`texp-touch`, passive evdev listener, no grab) —
-  2-finger tap: close panels/window under finger · 2-finger swipe left/right:
-  previous/next workspace · 2-finger swipe down: Omarchy menu · single-finger
+  2-finger tap: **right click** (v1.12.2 — context menu / AI-terminal paste,
+  injected via ydotool) · 2-finger swipe left/right: previous/next workspace · 2-finger swipe down: Omarchy menu · single-finger
   tap: focus the tapped window (Hyprland touch never focuses).
 - **Keyboard auto mode-switch** — dock the keyboard → laptop mode, detach →
   tablet mode (USB presence, on by default).
@@ -138,7 +138,7 @@ verify with `install.sh --verify`.
 | Hidden bar icons (tablet) | **⋮ button** → per-icon on/off toggles + Hide all / Show all |
 | Virtual keyboard | `SUPER+U` · **bar button (tablet)** · 3-finger tap (bottom-edge up-swipe gesture disabled by default since v1.2.1) |
 | Show/hide top bar (tablet mode) | tap the top edge / bar blank area (16 px strip when hidden, 5 px when shown) |
-| Close panels / touched window | 2-finger tap |
+| Right click (context menu / paste) | **2-finger tap** (v1.12.2, ydotool) |
 | Previous / next workspace | 2-finger swipe left / right |
 | Omarchy menu | 2-finger swipe down |
 

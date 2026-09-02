@@ -6,7 +6,8 @@ Passive listener on the Wacom finger device (NO grab, like texp-vk).
 Gestures NEVER synthesise input — they only run omarchy CLI/hyprctl, so they
 cannot fight Hyprland's own handling:
 
-  2-finger tap          -> texp-close --at <x> <y>   (close windows / panels)
+  2-finger tap          -> RIGHT CLICK (v1.12.2, ydotool button 3) at the
+                          touch point — context menu / paste in AI terminals
   3-finger tap          -> texp-vk toggle            (virtual keyboard)
   2-finger swipe LEFT   -> workspace +1
   2-finger swipe RIGHT  -> workspace -1
@@ -410,11 +411,13 @@ def daemon():
             focus_at(lx, ly)
 
         if action == "tap2":
-            dlog("-> tap2 close at %s %s" % (lx, ly))
-            if lx is not None and ly is not None:
-                run(["texp-close", "--at", f"{lx:.0f}", f"{ly:.0f}"])
-            else:
-                run(["texp-close"])
+            # v1.12.2: two-finger tap = RIGHT CLICK (context menu / paste in
+            # AI terminals). Hyprland already moves the cursor to the touch
+            # point on touch, so a bare `ydotool click 3` right-clicks exactly
+            # where the fingers were (ydotoold must be running — install.sh /
+            # the ydotool.service enable it).
+            dlog("-> tap2 right-click at %s %s" % (lx, ly))
+            run(["ydotool", "click", "3"])
         elif action == "tap3":
             run(["texp-vk", "toggle"])
         elif action == "swipe-left":
