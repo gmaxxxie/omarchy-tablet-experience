@@ -105,7 +105,7 @@ if [ "$VERIFY" -eq 1 ]; then
   PLUGINS_DIR="$HOME/.config/omarchy/plugins"
   PLUGIN_DIR="$PLUGINS_DIR/maxt.tablet-experience"
   if [ -d "$PLUGIN_DIR" ]; then
-    if grep -rEq 'omarchy-(vk|touch|close|window|rotate|orient|kbdetect|bar-probe)' \
+    if grep -rEq --include='*.qml' 'omarchy-(vk|touch|close|window|rotate|orient|kbdetect|bar-probe)' \
         "$PLUGIN_DIR" 2>/dev/null; then
       bad "plugin QML still calls omarchy-* helpers — copy Service.qml/BarWidget.qml from the repo"
     else
@@ -228,10 +228,12 @@ done
 # at login and the virtual-keyboard bottom up-swipe stops working. Two
 # complementary grants, both idempotent:
 #   1. a project udev rule tags the event nodes with `uaccess` so
-#      systemd-logind hands the ACTIVE seat session read ACLs — effective
-#      IMMEDIATELY (udevadm trigger below) and follows session switches;
-#   2. the user is added to the `input` group as a fallback that needs no
-#      logind involvement (takes effect at next login/reboot).
+#      systemd-logind grants the ACTIVE seat session read ACLs (guaranteed
+#      at device-add on the next boot; install-time trigger is best-effort);
+#   2. the user is added to the `input` group — the guaranteed path, applies
+#      to every session started after this point (login/reboot).
+# For the CURRENT session right after install, restart the daemons under the
+# new group:  newgrp input -c 'texp-vk daemon'   (and texp-touch)
 INPUT_RULE=/etc/udev/rules.d/99-tablet-experience-input.rules
 INPUT_RULE_CONTENT='# Tablet Experience (maxt.tablet-experience) - grant the active seat
 # session read access to /dev/input/event* so the gesture daemons
@@ -301,8 +303,11 @@ Next steps:
   Input-device access: a udev rule (/etc/udev/rules.d/99-tablet-experience-input.rules)
   tagged /dev/input/event* with uaccess and you were added to group 'input',
   so the gesture daemons can read the touchscreen after reboots. The udev
-  rule's ACLs apply to the current session immediately (udevadm trigger ran
-  above); the group membership applies at next login.
+  rule is honoured at the next device-add (boot); the group applies to every
+  login from now on. Already logged in and want it now? Restart the daemons
+  under the new group:
+      newgrp input -c 'texp-vk daemon'
+      newgrp input -c 'texp-touch daemon'
 
   Hardware overrides (export before login, e.g. ~/.config/environment.d/):
     OMARCHY_ROTATE_DISPLAY   display to rotate (default: first Hyprland monitor)

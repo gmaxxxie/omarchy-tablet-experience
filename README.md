@@ -84,9 +84,10 @@ What it installs: the 8 helper daemons to `~/.local/bin`, a
 bar-strip z-index) with a one-line `require` appended to your `hyprland.lua`,
 autostart hooks (`texp-vk` / `texp-touch`) in `autostart.lua`, and **the
 gesture daemons' evdev access**: a project udev rule tagging `/dev/input/event*`
-with `uaccess` (logind grants your session read ACLs right away — no logout
-needed) plus your user added to the `input` group (applies next login). Every
-modified file gets a `*.bak.<timestamp>` first.
+with `uaccess` (logind grants the active session read ACLs from the next
+boot) plus your user added to the `input` group (guaranteed for every login
+from now on — `newgrp input -c 'texp-vk daemon'` makes the current session
+work immediately). Every modified file gets a `*.bak.<timestamp>` first.
 
 **Re-login once** after installing so the shell loads the plugin fresh, then
 verify with `install.sh --verify`.

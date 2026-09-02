@@ -266,7 +266,7 @@ def find_touch_device():
     dlog(f"texp-touch: scanned /dev/input ({nodes} nodes, unreadable: {skipped})")
     if not matches:
         return None, skipped
-    return matches[-1], skipped
+    return f"/dev/input/{matches[-1]}", skipped
 
 
 # ---------------------------------------------------------------------------

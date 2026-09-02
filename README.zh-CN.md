@@ -49,7 +49,7 @@ omarchy plugin add https://github.com/gmaxxxie/omarchy-tablet-experience.git --e
 | `--dry-run` | 只预览，不修改任何东西 |
 | `--verify` | 升级后自检（只读，见"升级与安全"） |
 
-安装内容：8 个 helper 守护进程到 `~/.local/bin`、一份 `tablet-experience.lua` Hyprland 配置（触摸滑动 + 三个按键绑定 + 顶部栏条的 z-index，并在你的 `hyprland.lua` 追加一行 `require`）、`autostart.lua` 里的自启钩子（`texp-vk` / `texp-touch`）、以及**手势守护进程的 evdev 访问权限**：项目自带的 udev 规则给 `/dev/input/event*` 打上 `uaccess` 标签（logind 立刻给当前会话发读 ACL，无需退出登录），并把你加入 `input` 用户组（下次登录生效）。所有被改动的文件都会先留 `*.bak.<时间戳>` 备份。
+安装内容：8 个 helper 守护进程到 `~/.local/bin`、一份 `tablet-experience.lua` Hyprland 配置（触摸滑动 + 三个按键绑定 + 顶部栏条的 z-index，并在你的 `hyprland.lua` 追加一行 `require`）、`autostart.lua` 里的自启钩子（`texp-vk` / `texp-touch`）、以及**手势守护进程的 evdev 访问权限**：项目自带的 udev 规则给 `/dev/input/event*` 打上 `uaccess` 标签（下次开机起 logind 会给当前活动会话授读 ACL），并把你加入 `input` 用户组（之后的每次登录都保证生效；想立刻在当前会话生效可执行 `newgrp input -c 'texp-vk daemon'`）。所有被改动的文件都会先留 `*.bak.<时间戳>` 备份。
 
 **安装后重新登录一次**，让 shell 全新加载插件，然后用 `install.sh --verify` 验证。
 

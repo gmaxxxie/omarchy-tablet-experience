@@ -222,19 +222,24 @@ relogin/restart so WirePlumber picks the UVC device up.**
    `root:input 660`). Three-part fix:
    - `install.sh` now grants evdev access: a project udev rule
      (`/etc/udev/rules.d/99-tablet-experience-input.rules`,
-     `TAG+="uaccess"` on `event*`) + `udevadm trigger` → logind hands the
-     ACTIVE session read ACLs immediately (no logout), plus `usermod -aG
-     input $USER` as a next-login fallback. `uninstall.sh` removes the rule
-     (byte-match only); `--verify` checks both.
+     `TAG+="uaccess"` on `event*`) + `udevadm trigger` (logind honours it at
+     device-add on later boots), plus `usermod -aG input $USER` — the
+     guaranteed path for every login from then on. `uninstall.sh` removes the
+     rule (byte-match only); `--verify` checks both.
    - both daemons now scan resiliently (skip unreadable nodes instead of
      crashing on event0), retry while the failure looks like missing
      permissions (infinite, 3 s; logged at most every 30 s), and only exit
-     when /dev/input is empty entirely. Verified live: daemons launched via
-     the autostart path (`texp-vk daemon` / `texp-touch daemon`) now stay up
-     in a retry loop instead of dying; once access appears (install.sh or next
-     login) they go live within one poll. (Activating the udev rule on this
-     machine needs one `install.sh` run with sudo — the only privileged step;
-     everything else is user-space.)
+     when /dev/input is empty entirely.
+   - Activation verified live: after the user ran install.sh (sudo), the
+     daemons were restarted under the new group
+     (`newgrp input -c 'texp-vk daemon'` … — newgrp is the faithful current-
+     session equivalent of the next login's group set) and BOTH went live:
+     `texp-vk: watching /dev/input/event15 (Wacom HID 525D Finger); …` and
+     `texp-touch: watching /dev/input/event15 (Wacom HID 525D Finger)`. Live
+     testing also caught and fixed a path bug I introduced in the hardened
+     texp-touch discovery (it returned the bare `event15` name instead of
+     `/dev/input/event15`). At the next login/reboot the autostart hooks run
+     the same daemons with the group already present — no newgrp needed.
 
 3. **Tablet-mode top-bar toggle** — with no mouse there is no hover to reveal
    Omarchy's (optional) hidden/transparent top bar, so Service.qml now owns a
