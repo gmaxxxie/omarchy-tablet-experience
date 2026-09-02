@@ -4,10 +4,11 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// Tablet Experience — bar widget (v1.5.0): always-mounted entry point with an
+// Tablet Experience — bar widget (v1.8.0): always-mounted entry point with an
 // input-method (fcitx5) quick switch, a virtual-keyboard toggle icon
 // (show/hide squeekboard, live state highlight), a voice-input icon (v1.5,
-// voxtype hold-to-talk overlay) plus the window-manage popup.
+// voxtype hold-to-talk overlay), a dedicated window-manage icon (v1.8,
+// close / move-to-workspace popup) plus the ⋮ overflow popup.
 // The IM switch, the keyboard icon and the voice-input icon are TABLET-MODE
 // ONLY (in laptop mode the physical keyboard is docked); the mode button is
 // always visible.
@@ -53,6 +54,8 @@ Panel {
   property int wsId: 1
   property string wsLayout: "dwindle"
   property bool showMoveGrid: false
+  // v1.8: dedicated window-manage popup (close / move), open state.
+  property bool winOpened: false
 
   // Squeekboard visibility, read from its D-Bus .Visible property — the same
   // source texp-vk uses — so the icon agrees with SUPER+U and the swipe.
@@ -158,6 +161,21 @@ Panel {
       }
     }
 
+    // Window manage — TABLET MODE ONLY (v1.8): a dedicated icon so close /
+    // move-to-workspace are one tap away, no longer buried in ⋮.
+    WidgetButton {
+      id: windowButton
+      bar: root.bar
+      visible: root.tablet
+      text: "\uF2D2"            // fa-window-restore (glyph covered by the bar font, verified)
+      active: root.winOpened
+      tooltipText: "Window manage — close / move to workspace (tablet)"
+      onPressed: function() {
+        if (root.opened) root.close()
+        root.winOpened = !root.winOpened
+      }
+    }
+
     // Tablet overflow ⋮ — v1.2 simplified bar: hosts window manage, rotation
     // and the hidden bar icons behind the essentials (IM + VK toggles above).
     WidgetButton {
@@ -166,8 +184,9 @@ Panel {
       visible: root.tablet
       text: "\uF142"           // fa-ellipsis-v („more“; glyph verified)
       active: root.opened
-      tooltipText: "More — window manage, rotation & hidden bar icons (tablet)"
+      tooltipText: "More — rotation & hidden bar icons (tablet)"
       onPressed: function() {
+        root.winOpened = false
         root.toggle()
       }
     }
@@ -229,55 +248,12 @@ Panel {
         }
       }
 
-      // ---- window / layout / rotation: unlocked in tablet mode only
+      // ---- layout / rotation: unlocked in tablet mode only (window
+      // close / move now live in their own popup, v1.8)
       Column {
         visible: root.tablet
         width: parent.width
         spacing: Style.spacing.sm
-
-        PanelSeparator { }
-
-        PanelSectionHeader {
-          text: "Window"
-        }
-
-        Button {
-          height: Style.space(40)
-          iconText: "✕"
-          text: "Close"
-          onClicked: { root.runAction(["texp-window", "close"]); root.close() }
-        }
-
-        Button {
-          height: Style.space(40)
-          iconText: "➜"
-          text: "Move to Workspace"
-          onClicked: { root.showMoveGrid = !root.showMoveGrid }
-        }
-
-        // 2x5 grid of workspace targets; the current workspace is highlighted.
-        Grid {
-          id: wsGrid
-          visible: root.showMoveGrid
-          width: parent.width
-          columns: 5
-          rowSpacing: Style.spacing.sm
-          columnSpacing: Style.spacing.sm
-
-          Repeater {
-            model: 10
-            delegate: Button {
-              width: (wsGrid.width - wsGrid.columnSpacing * (wsGrid.columns - 1)) / wsGrid.columns
-              height: Style.space(32)
-              text: String(index + 1)
-              active: root.wsId === index + 1
-              onClicked: {
-                root.runAction(["texp-window", "move", String(index + 1)])
-                root.close()
-              }
-            }
-          }
-        }
 
         PanelSeparator { }
 
@@ -411,6 +387,69 @@ Panel {
     }
   }
 
+  // Window-manage popup (v1.8): close / move-to-workspace in tablet mode,
+  // one tap away from the dedicated window icon. Targets the window under
+  // the last touch (texp-touch records it; texp-window resolves it).
+  PopupCard {
+    id: winPanel
+    anchorItem: windowButton
+    owner: root
+    bar: root.bar
+    open: root.winOpened
+    triggerMode: "click"
+    contentWidth: winPanel.fittedContentWidth(Style.space(240))
+    contentHeight: winPanel.fittedContentHeight(winList.implicitHeight)
+
+    Column {
+      id: winList
+      anchors.fill: parent
+      anchors.margins: Style.spacing.popupPadding
+      spacing: Style.spacing.sm
+
+      PanelSectionHeader {
+        text: "Window"
+      }
+
+      Button {
+        height: Style.space(40)
+        iconText: "✕"
+        text: "Close"
+        onClicked: { root.runAction(["texp-window", "close"]); root.winOpened = false }
+      }
+
+      Button {
+        height: Style.space(40)
+        iconText: "➜"
+        text: "Move to Workspace"
+        onClicked: { root.showMoveGrid = !root.showMoveGrid }
+      }
+
+      // 2x5 grid of workspace targets; the current workspace is highlighted.
+      Grid {
+        id: winGrid
+        visible: root.showMoveGrid
+        width: parent.width
+        columns: 5
+        rowSpacing: Style.spacing.sm
+        columnSpacing: Style.spacing.sm
+
+        Repeater {
+          model: 10
+          delegate: Button {
+            width: (winGrid.width - winGrid.columnSpacing * (winGrid.columns - 1)) / winGrid.columns
+            height: Style.space(32)
+            text: String(index + 1)
+            active: root.wsId === index + 1
+            onClicked: {
+              root.runAction(["texp-window", "move", String(index + 1)])
+              root.winOpened = false
+            }
+          }
+        }
+      }
+    }
+  }
+
   // The plugin service QML re-instantiates after every shell.json mutation
   // (plugin reload); keep our reference pointing at the CURRENT instance so
   // the popup's toggle state and actions never hit a stale one.
@@ -510,5 +549,5 @@ Panel {
     }
   }
 
-  Component.onCompleted: console.log("MAXT-WIDGET-ONLINE v1.5 mode=" + (root.tablet ? "tablet" : "laptop"))
+  Component.onCompleted: console.log("MAXT-WIDGET-ONLINE v1.8 mode=" + (root.tablet ? "tablet" : "laptop"))
 }

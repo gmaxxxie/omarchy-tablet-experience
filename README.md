@@ -64,9 +64,10 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   tap: focus the tapped window (Hyprland touch never focuses).
 - **Keyboard auto mode-switch** — dock the keyboard → laptop mode, detach →
   tablet mode (USB presence, on by default).
-- **Tablet window manage** — bar button popup in tablet mode: close the last
-  touched window ✕, move it to workspace 1–10, or switch workspace layout
-  Dwindle/Scrolling. Targets only visible windows; actions notify.
+- **Tablet window manage** — **v1.8: a dedicated window icon** in the tablet
+  bar opens close ✕ / move-to-workspace 1–10 directly (no longer buried in
+  ⋮). The ⋮ popup keeps rotation, layout and the hidden bar icons. Targets
+  only visible windows; actions notify.
 - **Touch workspace swipe** — native Hyprland gesture enabled by the plugin
   config.
 - **Optional Chinese IME** — fcitx5 + Rime via `--with-ime` (see install).
@@ -126,6 +127,7 @@ verify with `install.sh --verify`.
 | Next rotation preset | `SUPER+SHIFT+R` (or bar button, right click) |
 | Switch input method (EN ⇄ 中) | **bar button, tablet mode** (shows current IM) |
 | Voice input (hold to talk) | **mic bar button (tablet)** → bottom button: press & hold to record, release to transcribe; **⏎ Enter** to submit; mic icon again to close |
+| Window manage (close / move) | **window bar button (tablet)** → Close ✕ / Move to Workspace 1–10 |
 | Virtual keyboard | `SUPER+U` · bottom-edge up-swipe · **tablet bar button** |
 | Hidden bar icons (tablet) | **⋮ button** → per-icon on/off toggles + Hide all / Show all |
 | Virtual keyboard | `SUPER+U` · **bar button (tablet)** · 3-finger tap (bottom-edge up-swipe gesture disabled by default since v1.2.1) |
