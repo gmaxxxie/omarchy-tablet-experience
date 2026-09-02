@@ -2,8 +2,18 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import qs.Commons
 
 // Tablet Experience — Laptop/Tablet state machine (Phases 7–10).
+//
+// Voice input (v1.5): in tablet mode the bar shows a mic icon that opens /
+// closes a bottom-anchored hold-to-talk button. Press & hold it ->
+// `voxtype record start` (SIGUSR1 to the voxtype daemon), release ->
+// `voxtype record stop` (SIGUSR2), and voxtype transcribes the clip and
+// types it at the cursor (wtype, full CJK support). Live state mirrors
+// voxtype's own state file ($XDG_RUNTIME_DIR/voxtype/state), so the visuals
+// agree with the F9 / SUPER+CTRL+X hotkeys too; leaving tablet mode (or
+// re-tapping the mic icon) never strands a recording.
 //
 // Persistent state (survives shell reloads via PersistentProperties):
 //   mode             "laptop" | "tablet"
@@ -51,7 +61,7 @@ import Quickshell.Wayland
 Item {
   id: root
 
-  Component.onCompleted: console.log("tablet-experience Service LOADED v4")
+  Component.onCompleted: console.log("tablet-experience Service LOADED v1.5")
 
   property var shell: null
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
@@ -116,6 +126,21 @@ Item {
   // omarchy-toggle-bar maintains). The strip shows/hides it in tablet mode.
   property bool barHidden: false
   property string home: Quickshell.env("HOME")
+
+  // Voice input (v1.5) — voxtype hold-to-talk from tablet mode.
+  //   voiceInputOpen  the bottom hold-to-talk overlay is showing
+  //   holding         our button is pressed (authority for start/stop)
+  //   recording       voxtype state file says recording/streaming
+  //   transcribing    voxtype state file says transcribing/outputting
+  //   voxtypeUp       voxtype state file readable => daemon running
+  property bool voiceInputOpen: false
+  property bool holding: false
+  property bool recording: false
+  property bool transcribing: false
+  property bool voxtypeUp: false
+  property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR") || ""
+  readonly property string voxtypeStateDir: root.runtimeDir + "/voxtype"
+  readonly property string voxtypeStateFile: root.voxtypeStateDir + "/state"
 
   // Logical heights of the edge strip. Big when the bar is hidden (easy
   // reveal target), tiny when it is visible (so bar buttons stay reachable).
@@ -233,6 +258,9 @@ Item {
     // v1.2: tablet = simplified bar, laptop = default full bar.
     root.syncTabletLayout()
     if (!isTabletMode) {
+      // Leaving tablet mode: never leave the hold-to-talk overlay or a
+      // voxtype recording around (there is a real keyboard again).
+      if (root.voiceInputOpen) root.hideVoiceInput()
       // Laptop: with the keyboard docked the panel is always used
       // face-up, so the display always returns to the default 0°
       // landscape. Silent (the mode OSD above already tells the user).
@@ -371,6 +399,7 @@ Item {
       if (persisted.autoOrient) root.pollOrientation()
       root.pollKeyboard()   // Phase 9 presence tracking (auto-switch opt-in)
       root.pollTransform()  // laptop-reset latch (restart edge)
+      root.pollVoxtype()    // v1.5 voice-input state (voxtypeUp / recording)
       root.syncTabletLayout()  // v1.2: tablet/laptop bar declutter, self-healing
     }
   }
@@ -401,6 +430,59 @@ Item {
     osdProcess.command = ["omarchy-osd", "-i", icon, "-m", message]
     osdProcess.running = true
   }
+
+  // -------------------------------------------------- voice input (v1.5)
+
+  // The bar's mic icon toggles the bottom hold-to-talk overlay.
+  function toggleVoiceInput() {
+    if (root.voiceInputOpen) root.hideVoiceInput()
+    else root.showVoiceInput()
+  }
+
+  function showVoiceInput() {
+    root.voiceInputOpen = true
+    root.pollVoxtype()   // refresh daemon state the moment it appears
+  }
+
+  function hideVoiceInput() {
+    // Never strand a recording when the button disappears (re-tap the mic
+    // icon, or a mode switch) — a lift-off event can get lost with it.
+    if (root.holding || root.recording) root.stopRecording()
+    root.voiceInputOpen = false
+  }
+
+  // Press = `voxtype record start` (SIGUSR1); gated locally so a repeated
+  // press while already holding can't double-start the daemon.
+  function startRecording() {
+    if (root.holding || root.recording) return
+    root.holding = true
+    vxCmd.command = ["voxtype", "record", "start"]
+    vxCmd.running = true
+  }
+
+  // Release = `voxtype record stop` (SIGUSR2) -> transcribe + type at cursor.
+  // Sent unconditionally on our own release (harmless when idle) so a very
+  // fast tap that the state poll never saw still ends its recording.
+  function stopRecording() {
+    root.holding = false
+    vxCmd.command = ["voxtype", "record", "stop"]
+    vxCmd.running = true
+  }
+
+  // Voxtype state names: idle / recording / transcribing / outputting /
+  // streaming / eager-recording (src/state.rs, written to the state file).
+  function updateVoxtypeState(name) {
+    var n = String(name || "").trim().toLowerCase()
+    root.voxtypeUp = n !== ""
+    root.recording = (n === "recording" || n === "streaming" || n === "eager-recording")
+    root.transcribing = (n === "transcribing" || n === "outputting")
+  }
+
+  function pollVoxtype() {
+    if (!vxStateProbe.running) vxStateProbe.running = true
+  }
+
+  Process { id: vxCmd }
 
   // ------------------------------------------------- tablet-mode bar toggle
 
@@ -433,6 +515,25 @@ Item {
     watchChanges: true
     printErrors: false
     onFileChanged: if (!barHiddenProbe.running) barHiddenProbe.running = true
+  }
+
+  // Voxtype live state — same state file `voxtype status` reads, so the
+  // hold-to-talk visuals agree with the F9 / SUPER+CTRL+X hotkeys as well.
+  // The daemon removes the file on exit, so an empty read = daemon down.
+  Process {
+    id: vxStateProbe
+    command: ["bash", "-c", "cat \"$XDG_RUNTIME_DIR/voxtype/state\" 2>/dev/null; echo; true"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.updateVoxtypeState(String(text || "").trim())
+    }
+  }
+
+  FileView {
+    path: root.voxtypeStateDir
+    watchChanges: true
+    printErrors: false
+    onFileChanged: if (!vxStateProbe.running) vxStateProbe.running = true
   }
 
   // Edge strip: one Top-layer window per output, full width, parked at the
@@ -483,6 +584,106 @@ Item {
             onTapped: root.toggleTopBar()
           }
         }
+      }
+    }
+  }
+
+  // Voice input button (v1.5): a bottom-anchored hold-to-talk overlay that
+  // the bar's mic icon opens/closes in tablet mode. Press & hold the round
+  // mic to record (`voxtype record start`), release to transcribe and type
+  // at the cursor (`voxtype record stop`). Anchored bottom-edge only (no
+  // left/right) -> the surface floats bottom-center and the rest of the
+  // screen stays touchable.
+  Variants {
+    model: Quickshell.screens
+    delegate: Component {
+      PanelWindow {
+        id: voiceBar
+        required property var modelData
+        screen: modelData
+        visible: root.isTabletMode && root.voiceInputOpen
+        color: "transparent"
+        WlrLayershell.namespace: "maxt-tablet-voicebar"
+        WlrLayershell.layer: WlrLayer.Top
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        exclusionMode: ExclusionMode.Ignore
+
+        anchors { bottom: true }
+        margins { bottom: 28 }
+        implicitWidth: 220
+        implicitHeight: 200
+
+        Column {
+          anchors.centerIn: parent
+          spacing: 14
+
+          Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: {
+              if (!root.voxtypeUp) return "voxtype 未运行"
+              if (root.transcribing) return "识别中…"
+              if (root.holding || root.recording) return "松开以结束"
+              return "按住说话"
+            }
+            color: Color.foreground
+            font.family: Style.font.family
+            font.pixelSize: Style.font.body
+            opacity: 0.85
+          }
+
+          Rectangle {
+            id: micCircle
+            width: 120
+            height: 120
+            radius: width / 2
+            color: (root.holding || root.recording)
+              ? Util.alpha(Color.urgent, 0.9)
+              : Util.alpha(Color.accent, 0.14)
+            border.width: 2
+            border.color: (root.holding || root.recording)
+              ? Color.urgent : Util.alpha(Color.foreground, 0.35)
+
+            Text {
+              anchors.centerIn: parent
+              text: "\uF130"          // fa-microphone (verified in the bar font)
+              color: (root.holding || root.recording) ? "#ffffff" : Color.foreground
+              font.family: Style.font.family
+              font.pixelSize: 44
+            }
+
+            // Expanding pulse ring while recording.
+            Rectangle {
+              anchors.fill: parent
+              radius: width / 2
+              color: "transparent"
+              border.width: 3
+              border.color: Util.alpha(Color.urgent, 0.6)
+              visible: root.holding || root.recording
+              opacity: 0.7
+              SequentialAnimation on scale {
+                running: root.holding || root.recording
+                loops: Animation.Infinite
+                NumberAnimation { from: 1.0; to: 1.35; duration: 700; easing.type: Easing.InOutQuad }
+                NumberAnimation { from: 1.35; to: 1.0; duration: 700; easing.type: Easing.InOutQuad }
+              }
+            }
+
+            // Press & hold = record, release = transcribe. mouseEnabled keeps
+            // mouse presses working too (desktop testing); the area captures
+            // the touch, so sliding off and releasing still fires onReleased.
+            MultiPointTouchArea {
+              anchors.fill: parent
+              mouseEnabled: true
+              onPressed: root.startRecording()
+              onReleased: root.stopRecording()
+              onCanceled: root.stopRecording()
+            }
+          }
+        }
+
+        // If the surface goes away mid-press (mode switch / shell reload),
+        // never strand voxtype recording.
+        Component.onDestruction: if (root.holding || root.recording) root.stopRecording()
       }
     }
   }
@@ -765,6 +966,9 @@ Item {
         orientation: root.orientation,
         isTabletMode: root.isTabletMode,
         barHidden: root.barHidden,
+        voiceInputOpen: root.voiceInputOpen,
+        voiceRecording: root.recording,
+        voxtypeUp: root.voxtypeUp,
         tabletLayoutActive: root.tabletLayoutActive,
         overflowWidgets: root.overflowItems.map(function(i) { return i.id })
       })
@@ -855,6 +1059,22 @@ Item {
     function hideAllBarIcons(): string {
       root.hideAllBarIcons()
       return root.overflowItems.map(function(i) { return i.id }).join(",")
+    }
+
+    // ---- voice input (v1.5): open/close the bottom hold-to-talk button.
+    function voiceInputToggle(): string {
+      root.toggleVoiceInput()
+      return root.voiceInputOpen ? "open" : "closed"
+    }
+
+    function voiceInputShow(): string {
+      root.showVoiceInput()
+      return "open"
+    }
+
+    function voiceInputHide(): string {
+      root.hideVoiceInput()
+      return "closed"
     }
   }
 }

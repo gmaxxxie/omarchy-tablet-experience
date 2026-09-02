@@ -4,11 +4,13 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// Tablet Experience — bar widget (v1.3.0): always-mounted entry point with an
-// input-method (fcitx5) quick switch and a virtual-keyboard toggle icon
-// (show/hide squeekboard, live state highlight) plus the window-manage popup.
-// Both the IM switch and the keyboard icon are TABLET-MODE ONLY (in laptop
-// mode the physical keyboard is docked); the mode button is always visible.
+// Tablet Experience — bar widget (v1.5.0): always-mounted entry point with an
+// input-method (fcitx5) quick switch, a virtual-keyboard toggle icon
+// (show/hide squeekboard, live state highlight), a voice-input icon (v1.5,
+// voxtype hold-to-talk overlay) plus the window-manage popup.
+// The IM switch, the keyboard icon and the voice-input icon are TABLET-MODE
+// ONLY (in laptop mode the physical keyboard is docked); the mode button is
+// always visible.
 //
 // The buttons are always mounted so there is always an entry point: laptop
 // mode shows the mode label and the popup only offers Laptop/Tablet;
@@ -136,6 +138,23 @@ Panel {
         // repaint the state quickly after a toggle, then fall back to the slow poll
         vkRefreshTimer.interval = 350
         vkRefreshTimer.restart()
+      }
+    }
+
+    // Voice input (voxtype) — TABLET MODE ONLY (v1.5): opens/closes the
+    // bottom hold-to-talk button. Press & hold there to dictate, release to
+    // transcribe and type at the cursor (voxtype record start/stop).
+    WidgetButton {
+      id: voiceButton
+      bar: root.bar
+      visible: root.tablet
+      text: "\uF130"            // fa-microphone (glyph covered by the bar font, verified)
+      active: root.service ? root.service.voiceInputOpen : false
+      tooltipText: root.service && root.service.voiceInputOpen
+        ? "Hide voice input button"
+        : "Voice input — hold to talk (voxtype)"
+      onPressed: function() {
+        if (root.service) root.service.toggleVoiceInput()
       }
     }
 
@@ -491,5 +510,5 @@ Panel {
     }
   }
 
-  Component.onCompleted: console.log("MAXT-WIDGET-ONLINE v1.3 mode=" + (root.tablet ? "tablet" : "laptop"))
+  Component.onCompleted: console.log("MAXT-WIDGET-ONLINE v1.5 mode=" + (root.tablet ? "tablet" : "laptop"))
 }
