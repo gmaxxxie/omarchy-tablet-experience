@@ -205,6 +205,41 @@ relogin/restart so WirePlumber picks the UVC device up.**
 
 ## Next actions
 
+**Done this round (2026-09-02, v1.2.0): portrait/tablet bar declutter.**
+
+User: "竖屏顶部栏图标过多会遮盖" then "或者简化, laptop 就是默认多图标, tablet 模式就是简化的模式" — the bar layout is now MODE-driven:
+
+- LAPTOP = default full bar (restored verbatim on every tablet→laptop switch).
+- TABLET = simplified bar: essentials only (`omarchy.menu`, `workspaces`,
+  `clock`, `tray`, `network`, `audio`, `power`, `maxt.tablet-experience`)
+  plus the plugin's own two quick toggles (input method EN⇄中 via
+  `fcitx5-remote -t`, and the virtual-keyboard button) and a **⋮** overflow
+  button whose popup lists every hidden bar icon (tap = mount it back at its
+  original slot, `bringBackBarWidget`), plus the existing window-manage /
+  rotation sections. All config changes go through the shell's own
+  `mutateShellConfig` (the same sanctioned path omarchy uses for
+  transparency) — no omarchy package files are touched.
+- **Restart/crash-proof state**: the verbatim pre-tablet layout is carried IN
+  shell.json as `bar.layoutSnapshot` (a key Bar.qml ignores), replaced
+  atomically with the pared `bar.layout` in ONE config write. Restore =
+  `layout = layoutSnapshot` + delete, again one write. No separate state
+  file, no PersistentProperties racing a plugin reload, self-healing on the
+  1.5 s poll: a shell killed mid-tablet always recovers the original layout.
+- **IPC/UI**: `getState` now reports `tabletLayoutActive` + `overflowWidgets`;
+  new `bringBackBarWidget <id>` and `restoreBarIcons` methods. Layout
+  mutations are deferred through a small FIFO (mutations issued inside an
+  IPC handler are ignored by the shell's config writer; deferring onto a
+  plain event-loop turn fixes it).
+- **Verified live** (this machine): laptop full 4/5/8 → tablet pared 3/1/4 +
+  snapshot key present + overflow lists 9 widgets (max.scene, keyboard-
+  layout, indicators, system-update, weather, agents, bluetooth, tailscale,
+  monitor) → `bringBackBarWidget omarchy.weather` puts weather back at its
+  original center slot → `restoreBarIcons` brings the exact full layout back
+  and drops the snapshot (<0.25 s) → setMode laptop auto-restores → shell
+  restart in tablet leaves a consistent state (auto-laptop via keyboard
+  presence restores to full; the pared+snapshot combination is intact if the
+  mode survives).
+
 **Done this round (2026-09-02, v1.1.0):** four user issues from real-device use.
 
 1. **Laptop mode must always return to the default angle** — already shipped in

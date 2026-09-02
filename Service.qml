@@ -31,16 +31,27 @@ import Quickshell.Wayland
 // tablet mode; it drives the official `omarchy-toggle-bar` bar-off flag so
 // the shell's own rendering/state stays authoritative.
 //
+// Tablet bar declutter (v1.2): TABLET mode uses a simplified bar — the plugin
+// rewrites the bar layout (through the shell's own mutateShellConfig — the
+// same sanctioned path omarchy uses for transparency) to keep only essential
+// widgets and moves the rest behind the plugin's "⋮" overflow popup. LAPTOP
+// mode keeps the default full bar. The pre-tablet layout is carried inside
+// shell.json itself as bar.layoutSnapshot (a key the bar ignores), so the
+// state is atomic with the layout, survives shell restarts, and is restored
+// verbatim on laptop; each hidden widget can be brought back from the popup
+// at its original position without touching the snapshot.
+//
 // IPC (omarchy-shell maxt.tablet-experience <method>):
 //   getState | getMode | toggle | setMode <laptop|tablet>
 //   setRotation <off|0|2> | setAutoOrient <on|off> | setAutoSwitch <on|off>
 //   rotateLeft | rotateRight        (90° relative steps, tablet mode)
 //   toggleBar | setBarHidden <on|off|toggle>   (top-bar visibility)
+//   bringBackBarWidget <id> | restoreBarIcons   (tablet overflow)
 
 Item {
   id: root
 
-  Component.onCompleted: console.log("tablet-experience Service LOADED v3")
+  Component.onCompleted: console.log("tablet-experience Service LOADED v4")
 
   property var shell: null
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
@@ -67,6 +78,35 @@ Item {
   // the default 0° landscape — deferred until the rotation process is idle so
   // a rotation still in flight from tablet mode cannot swallow the reset.
   property bool pendingLaptopReset: false
+
+  // Tablet bar declutter (v1.2): see the header. All state lives in shell.json
+  // (bar.layoutSnapshot = the verbatim pre-tablet layout while tablet is
+  // active; bar.layout = the pared layout). The mirror below is kept for the
+  // widget/IPC and refreshed from the live config; overflowItems = hidden
+  // widgets (snapshot minus current layout).
+  property bool tabletLayoutActive: false
+  property var overflowItems: []
+  property var tabletLayoutSnapshot: null
+  property int liveTransform: 0
+
+  // Widgets that always stay mounted, in tablet mode or not.
+  readonly property var tabletEssentials: [
+    "omarchy.menu", "omarchy.workspaces", "omarchy.clock",
+    "omarchy.network", "omarchy.audio", "omarchy.power",
+    "omarchy.tray", "maxt.tablet-experience"
+  ]
+
+  property var overflowLabels: ({
+    "omarchy.keyboard-layout": "Keyboard layout",
+    "omarchy.system-update": "Omarchy update",
+    "omarchy.weather": "Weather",
+    "omarchy.indicators": "Indicators",
+    "omarchy.agents": "AI agents",
+    "omarchy.bluetooth": "Bluetooth",
+    "omarchy.tailscale": "Tailscale",
+    "omarchy.monitor": "Display",
+    "max.scene": "Scene switcher"
+  })
 
   // Omarchy top-bar visibility (mirrors the `bar-off` flag that
   // omarchy-toggle-bar maintains). The strip shows/hides it in tablet mode.
@@ -185,6 +225,8 @@ Item {
   // Idempotent side-effect pass — only runs on real transitions.
   function applyNext() {
     osd("tablet", isTabletMode ? "Tablet mode" : "Laptop mode")
+    // v1.2: tablet = simplified bar, laptop = default full bar.
+    root.syncTabletLayout()
     if (!isTabletMode) {
       // Laptop: with the keyboard docked the panel is always used
       // face-up, so the display always returns to the default 0°
@@ -330,6 +372,29 @@ Item {
     onTriggered: {
       if (persisted.autoOrient) root.pollOrientation()
       root.pollKeyboard()   // Phase 9 presence tracking (auto-switch opt-in)
+      root.pollTransform()  // laptop-reset latch (restart edge)
+      root.syncTabletLayout()  // v1.2: tablet/laptop bar declutter, self-healing
+    }
+  }
+
+  // One-shot load latch: races between the asynchronous PersistentProperties
+  // restore and the keyboard auto-switch can swallow the transition that
+  // would normally reset the display / sync the tablet layout, leaving e.g.
+  // laptop mode with a rotated display. Force both to consistency here.
+  Timer {
+    id: settleTimer
+    interval: 2500
+    running: true
+    repeat: false
+    triggeredOnStart: true
+    onTriggered: {
+      root.syncTabletLayout()
+      // Laptop must sit at the default angle even right after a restart with
+      // the display still rotated (requirement: choosing laptop always resets).
+      if (!root.isTabletMode && root.liveTransform !== 0 && !rotateProcess.running) {
+        root.pendingLaptopReset = true
+        root.tryLaptopReset()
+      }
     }
   }
 
@@ -424,6 +489,220 @@ Item {
     }
   }
 
+  // ------------------------------------------------- tablet bar declutter
+
+  function entryIdOf(entry) {
+    if (!entry) return ""
+    return typeof entry === "string" ? entry : String(entry.id || "")
+  }
+
+  // Deep copy of one bar layout (arrow of { left, center, right } arrays).
+  function copyLayout(layout) {
+    if (!layout || !Array.isArray(layout.left) ||
+        !Array.isArray(layout.center) || !Array.isArray(layout.right)) return null
+    return JSON.parse(JSON.stringify(
+      { left: layout.left, center: layout.center, right: layout.right }))
+  }
+
+  // Current bar layout from the live shell config.
+  function currentLayout() {
+    var cfg = root.shell ? root.shell.shellConfig : null
+    if (!cfg || !cfg.bar || !cfg.bar.layout) return null
+    return root.copyLayout(cfg.bar.layout)
+  }
+
+  // The stored pre-tablet layout (present while tablet declutter is active).
+  function snapshotLayout() {
+    var cfg = root.shell ? root.shell.shellConfig : null
+    if (!cfg || !cfg.bar || !cfg.bar.layoutSnapshot) return null
+    return root.copyLayout(cfg.bar.layoutSnapshot)
+  }
+
+  // Pared layout for the given full layout: essentials stay, the rest goes
+  // behind the ⋮ popup. Entries keep their settings and relative order.
+  function paredLayout(full) {
+    var out = { left: [], center: [], right: [] }
+    var regions = ["left", "center", "right"]
+    for (var r = 0; r < regions.length; r++) {
+      var src = full[regions[r]] || []
+      for (var i = 0; i < src.length; i++) {
+        if (root.tabletEssentials.indexOf(root.entryIdOf(src[i])) !== -1)
+          out[regions[r]].push(src[i])
+      }
+    }
+    return out
+  }
+
+  function mutateBarLayout(mutator) {
+    if (!root.shell || typeof root.shell.mutateShellConfig !== "function") return
+    root.shell.mutateShellConfig(mutator)
+  }
+
+  // Shell config writes are ignored while the call is inside an IPC handler
+  // (re-entrancy guard), and can also race a plugin reload. Run every layout
+  // mutation on a plain event-loop turn through this FIFO instead — the same
+  // code path the working mode-transition calls use.
+  property var pendingMutations: []
+  function deferBarMutation(mutator) {
+    root.pendingMutations.push(mutator)
+    if (!mutationTimer.running) mutationTimer.start()
+  }
+  Timer {
+    id: mutationTimer
+    interval: 60
+    repeat: true
+    onTriggered: {
+      if (root.pendingMutations.length === 0) { mutationTimer.stop(); return }
+      root.mutateBarLayout(root.pendingMutations.shift())
+    }
+  }
+
+  // Enter tablet: capture the current (full) layout as bar.layoutSnapshot and
+  // replace bar.layout with the pared version — ONE atomic config write, so a
+  // shell reload in between can never lose the original.
+  function applyTabletLayout() {
+    var cfg = root.shell ? root.shell.shellConfig : null
+    if (!cfg || !cfg.bar) return
+    if (cfg.bar.layoutSnapshot) {
+      root.refreshOverflow()
+      return   // already active (e.g. right after a reload)
+    }
+    var full = root.copyLayout(cfg.bar.layout)
+    if (!full) return
+    root.deferBarMutation(function(config) {
+      config.bar.layoutSnapshot = full
+      config.bar.layout = root.paredLayout(full)
+    })
+    root.tabletLayoutActive = true
+    refreshTimer.restart()
+  }
+
+  // Leave tablet: restore the verbatim pre-tablet layout and drop the
+  // snapshot in the same atomic write.
+  function restoreOriginalLayout() {
+    var cfg = root.shell ? root.shell.shellConfig : null
+    if (!cfg || !cfg.bar || !cfg.bar.layoutSnapshot) return
+    var snap = root.snapshotLayout()
+    root.deferBarMutation(function(config) {
+      if (config.bar && config.bar.layoutSnapshot) {
+        config.bar.layout = config.bar.layoutSnapshot
+        delete config.bar.layoutSnapshot
+      }
+    })
+    root.tabletLayoutActive = false
+    root.overflowItems = []
+    root.tabletLayoutSnapshot = snap
+    restoreTimer.restart()
+  }
+
+  // Mount one hidden widget back at its original position (the snapshot stays,
+  // so a later laptop restore reproduces the original layout exactly).
+  function bringBackBarWidget(id) {
+    var cfg = root.shell ? root.shell.shellConfig : null
+    if (!cfg || !cfg.bar || !cfg.bar.layoutSnapshot) return
+    var snap = cfg.bar.layoutSnapshot
+    var regions = ["left", "center", "right"]
+    for (var r = 0; r < regions.length; r++) {
+      var src = snap[regions[r]] || []
+      for (var c = 0; c < src.length; c++) {
+        if (root.entryIdOf(src[c]) === id) {
+          var entry = src[c]
+          var r0 = regions[r]
+          var i0 = c
+          root.deferBarMutation(function(config) {
+            var layout = config.bar.layout || {}
+            var target = layout[r0] || []
+            for (var i2 = 0; i2 < target.length; i2++) {
+              if (root.entryIdOf(target[i2]) === id) return   // already mounted
+            }
+            target.splice(Math.min(i0, target.length), 0, entry)
+          })
+          refreshTimer.restart()
+          return
+        }
+      }
+    }
+  }
+
+  function overflowLabel(id) {
+    var label = root.overflowLabels[id]
+    return label ? label : String(id || "").split(".").pop().replace(/-/g, " ")
+  }
+
+  // Hidden widgets = snapshot entries (non-essential) not currently mounted.
+  // Runs after each mutation and on the periodic poll, so external edits
+  // (omarchy bar put / manual re-add) are respected.
+  function refreshOverflow() {
+    var snap = root.snapshotLayout()
+    var current = root.currentLayout()
+    if (!snap || !current) { root.overflowItems = []; return }
+    var items = []
+    var regions = ["left", "center", "right"]
+    for (var r = 0; r < regions.length; r++) {
+      var src = snap[regions[r]] || []
+      var cur = current[regions[r]] || []
+      for (var i = 0; i < src.length; i++) {
+        var id = root.entryIdOf(src[i])
+        if (!id || root.tabletEssentials.indexOf(id) !== -1) continue
+        var mounted = false
+        for (var c = 0; c < cur.length; c++) {
+          if (root.entryIdOf(cur[c]) === id) { mounted = true; break }
+        }
+        if (!mounted) items.push({ id: id, label: root.overflowLabel(id) })
+      }
+    }
+    root.overflowItems = items
+  }
+
+  // Mode-based syncing (v1.2): TABLET = simplified bar, LAPTOP = default.
+  // Called from mode transitions, the load-time settle, and the periodic
+  // poll (self-healing against external shell.json edits / reloads).
+  function syncTabletLayout() {
+    var cfg = root.shell ? root.shell.shellConfig : null
+    var hasSnapshot = !!(cfg && cfg.bar && cfg.bar.layoutSnapshot)
+    root.tabletLayoutActive = hasSnapshot
+    if (root.isTabletMode) {
+      if (!hasSnapshot) root.applyTabletLayout()
+      else root.refreshOverflow()
+    } else if (hasSnapshot) {
+      root.restoreOriginalLayout()
+    }
+  }
+
+  // Monitor transform watcher — required only for the laptop reset latch
+  // (a restart can leave the display rotated; laptop must return to 0°).
+  Process {
+    id: transformProbe
+    command: ["hyprctl", "monitors", "-j"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        try {
+          var ms = JSON.parse(text || "[]")
+          if (!Array.isArray(ms) || ms.length === 0) return
+          var t = Number(ms[0].transform || 0)
+          if (t !== root.liveTransform) root.liveTransform = t
+        } catch (e) {}
+      }
+    }
+  }
+
+  function pollTransform() {
+    if (!transformProbe.running) transformProbe.running = true
+  }
+
+  Timer {
+    id: refreshTimer
+    interval: 400
+    onTriggered: root.refreshOverflow()
+  }
+
+  Timer {
+    id: restoreTimer
+    interval: 400
+    onTriggered: { root.tabletLayoutSnapshot = null }
+  }
+
   // ---------------------------------------------------------------- IPC
 
   IpcHandler {
@@ -438,7 +717,9 @@ Item {
         kbAttached: root.kbAttached,
         orientation: root.orientation,
         isTabletMode: root.isTabletMode,
-        barHidden: root.barHidden
+        barHidden: root.barHidden,
+        tabletLayoutActive: root.tabletLayoutActive,
+        overflowWidgets: root.overflowItems.map(function(i) { return i.id })
       })
     }
 
@@ -502,6 +783,16 @@ Item {
       else if (on === "off") root.setTopBarHidden(false)
       else root.toggleTopBar()
       return root.barHidden ? "hidden" : "shown"
+    }
+
+    function bringBackBarWidget(id: string): string {
+      root.bringBackBarWidget(String(id || ""))
+      return root.overflowItems.map(function(i) { return i.id }).join(",")
+    }
+
+    function restoreBarIcons(): string {
+      root.restoreOriginalLayout()
+      return root.tabletLayoutActive ? "still-tablet" : "restored"
     }
   }
 }

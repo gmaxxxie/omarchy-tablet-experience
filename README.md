@@ -25,10 +25,19 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   touchscreen is readable instead of dying at login, and `install.sh` grants
   the desktop user evdev access (udev `uaccess` rule + `input` group), so
   the up-swipe keeps working after a reboot.
-- **Input-method quick switch** — a bar button (**tablet mode only**) shows
-  the active fcitx5 input method (EN / 中 / …) and toggles it with one tap
-  (`fcitx5-remote -t`) — the convenient EN⇄中 switch the hidden fcitx5
-  indicator could not provide.
+- **Tablet simplified bar (v1.2)** — LAPTOP mode keeps the default full bar;
+  TABLET mode pares it to essentials (menu · workspaces · clock · tray ·
+  network · audio · power · this widget) and the rest (weather, indicators,
+  bluetooth, tailscale, display, updater, scene switcher, keyboard layout, …)
+  moves behind the plugin's **⋮ overflow popup**: quick access to the two
+  tablet essentials stays on the bar (input-method EN⇄中 + virtual keyboard),
+  the popup lists every hidden bar icon (tap to mount it back) plus window
+  manage & rotation. The pre-tablet layout is carried inside shell.json
+  (`bar.layoutSnapshot`, invisible to the bar), so it restores verbatim on
+  laptop and survives shell restarts and crashes.
+- **Input-method quick switch** — shows the active fcitx5 input method
+  (EN / 中 / …) and toggles it with one tap (`fcitx5-remote -t`) — the
+  convenient EN⇄中 switch the hidden fcitx5 indicator could not provide.
 - **Top-bar tap toggle (tablet mode)** — no mouse means no hover, so a thin
   full-width edge strip above the bar toggles it: tap when hidden → show,
   tap again → hide (drives Omarchy's own `bar-off` flag).
@@ -98,7 +107,9 @@ verify with `install.sh --verify`.
 |---|---|
 | Toggle Laptop/Tablet mode | `SUPER+SHIFT+U` (or bar button, left click) |
 | Next rotation preset | `SUPER+SHIFT+R` (or bar button, right click) |
-| Switch input method (EN ⇄ 中) | **bar button, tablet mode only** (shows current IM) |
+| Switch input method (EN ⇄ 中) | **bar button, tablet mode** (shows current IM) |
+| Virtual keyboard | `SUPER+U` · bottom-edge up-swipe · **tablet bar button** |
+| Hidden bar icons (tablet) | **⋮ button** → popup list; tap one to bring it back |
 | Virtual keyboard | `SUPER+U` · bottom-edge up-swipe · **keyboard icon in the bar, tablet mode only** (click to show/hide, highlighted while visible) |
 | Show/hide top bar (tablet mode) | tap the top edge / bar blank area (16 px strip when hidden, 5 px when shown) |
 | Close panels / touched window | 2-finger tap |

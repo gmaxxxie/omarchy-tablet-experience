@@ -4,7 +4,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// Tablet Experience — bar widget (v1.1.0): always-mounted entry point with an
+// Tablet Experience — bar widget (v1.2.0): always-mounted entry point with an
 // input-method (fcitx5) quick switch and a virtual-keyboard toggle icon
 // (show/hide squeekboard, live state highlight) plus the window-manage popup.
 // Both the IM switch and the keyboard icon are TABLET-MODE ONLY (in laptop
@@ -14,6 +14,13 @@ import qs.Ui
 // mode shows the mode label and the popup only offers Laptop/Tablet;
 // tablet mode switches the label to 窗口 and unlocks, in order:
 // Window (close / move-to-workspace) · Layout (dwindle/scrolling) · Rotation.
+//
+// In TABLET mode the simplified bar shows the two essential quick toggles
+// (input method EN⇄中 + virtual keyboard) plus a ⋮ (overflow) button whose
+// popup carries the mode switch, the tablet manage/rotation sections, and the
+// "Extra bar icons" list of bar widgets the tablet declutter (Service.qml
+// v1.2) parked there — tapping one mounts it back. LAPTOP mode keeps the
+// default full bar and the plain mode button.
 //
 // The IM button (leftmost, tablet mode only) toggles fcitx5's active input
 // method via `fcitx5-remote -t` — with the typical keyboard-us + rime pair
@@ -96,11 +103,9 @@ Panel {
     anchors.centerIn: parent
     spacing: Style.spacing.xs
 
-    // Input-method quick switch — TABLET MODE ONLY (in laptop mode the
-    // physical keyboard is docked and fcitx5's own trigger key works
-    // normally). Shows the active fcitx5 input method (EN / 中 / other) and
-    // toggles it on tap (fcitx5-remote -t): one tap = switch. Polled every
-    // 1.5s while visible.
+    // Input-method quick switch — TABLET MODE ONLY (laptop keeps the physical
+    // keyboard and fcitx5's own trigger). Shows the active fcitx5 input method
+    // (EN / 中 / other) and toggles it with one tap (fcitx5-remote -t).
     WidgetButton {
       id: imButton
       bar: root.bar
@@ -115,14 +120,12 @@ Panel {
       }
     }
 
-    // Virtual keyboard show/hide — top-bar icon, TABLET MODE ONLY (in laptop
-    // mode the physical keyboard is docked, so the icon stays hidden). Routes
-    // through texp-vk toggle (reads squeekboard state, starts it on demand):
-    // the same path as SUPER+U and the bottom-edge up-swipe.
+    // Virtual keyboard show/hide — TABLET MODE ONLY, one tap (same texp-vk
+    // path as SUPER+U / the bottom-edge up-swipe; live state highlight).
     WidgetButton {
       id: vkButton
       bar: root.bar
-      visible: root.tablet       // hide when the hardware keyboard is docked
+      visible: root.tablet
       text: "\uF11C"            // fa-keyboard (glyph covered by the bar font, verified)
       active: root.vkVisible
       tooltipText: root.vkVisible
@@ -136,14 +139,28 @@ Panel {
       }
     }
 
+    // Tablet overflow ⋮ — v1.2 simplified bar: hosts window manage, rotation
+    // and the hidden bar icons behind the essentials (IM + VK toggles above).
+    WidgetButton {
+      id: moreButton
+      bar: root.bar
+      visible: root.tablet
+      text: "\uF142"           // fa-ellipsis-v („more“; glyph verified)
+      active: root.opened
+      tooltipText: "More — window manage, rotation & hidden bar icons (tablet)"
+      onPressed: function() {
+        root.toggle()
+      }
+    }
+
+
     WidgetButton {
       id: button
       bar: root.bar
-      text: root.tablet ? "\uF10A" : "\uF109"   // fa-tablet(竖平板) / fa-laptop (both verified present)
+      visible: !root.tablet
+      text: "\uF109"   // fa-laptop (verified present)
       active: root.opened || root.tablet
-      tooltipText: root.tablet
-        ? "Window manage: close / move workspace / layout"
-        : "Laptop mode — open for Tablet mode"
+      tooltipText: "Laptop mode — open for Tablet mode"
 
       onPressed: function(btn) {
         if (btn === Qt.RightButton && root.service) root.service.cycleRotationPreset()
@@ -154,7 +171,7 @@ Panel {
 
   PopupCard {
     id: panel
-    anchorItem: button
+    anchorItem: root.tablet ? moreButton : button
     owner: root
     bar: root.bar
     open: root.opened
@@ -309,6 +326,44 @@ Panel {
         }
       }
 
+      // ---- tablet overflow: bar icons hidden by the v1.2 declutter live
+      // here; tapping one brings it back to the bar at its old position.
+      Column {
+        visible: root.tablet && root.service && root.service.overflowItems.length > 0
+        width: parent.width
+        spacing: Style.spacing.sm
+
+        PanelSeparator { }
+
+        PanelSectionHeader {
+          text: "Extra bar icons"
+        }
+
+        Repeater {
+          model: root.service ? root.service.overflowItems : []
+          delegate: Button {
+            width: parent.width
+            height: Style.space(36)
+            iconText: "+"
+            text: modelData.label
+            onClicked: {
+              if (root.service) root.service.bringBackBarWidget(modelData.id)
+              root.close()
+            }
+          }
+        }
+
+        Button {
+          width: parent.width
+          height: Style.space(36)
+          text: "Restore all bar icons"
+          onClicked: {
+            if (root.service) root.service.restoreBarIcons()
+            root.close()
+          }
+        }
+      }
+
       // Small bottom breathing room so the card does not hug the last row.
       Item {
         width: parent.width
@@ -401,5 +456,5 @@ Panel {
     }
   }
 
-  Component.onCompleted: console.log("MAXT-WIDGET-ONLINE v1.1 mode=" + (root.tablet ? "tablet" : "laptop"))
+  Component.onCompleted: console.log("MAXT-WIDGET-ONLINE v1.2 mode=" + (root.tablet ? "tablet" : "laptop"))
 }
