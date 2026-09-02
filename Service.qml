@@ -243,18 +243,11 @@ Item {
       root.tryLaptopReset()
       return
     }
-    // Entering tablet: default the rotation to sensor-following (auto)
-    // unless an orientation was fixed explicitly.
-    if (persisted.tabletRotation === "off") {
-      setRotationPreset("auto")
-      return
-    }
-    // Auto-orientation hands the display to the sensor; otherwise apply the
-    // preset (off = back to initial 0°).
-    if (!persisted.autoOrient && !rotateProcess.running) {
-      rotateProcess.command = ["texp-rotate", rotationTarget(persisted.tabletRotation)]
-      rotateProcess.running = true
-    }
+    // Entering tablet does NOT rotate the display (v1.4): no surprise
+    // orientation flip — the screen keeps its current angle. Rotation happens
+    // only when the user asks for it explicitly (popup Auto / ⟲⟳ /
+    // setRotation), and the "auto" preset keeps following the sensor posture
+    // when it is already enabled.
   }
 
   // Phase 6 — posture via texp-orient (sysfs accel, zero deps). Same

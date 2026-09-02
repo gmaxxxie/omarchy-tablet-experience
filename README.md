@@ -14,12 +14,13 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
 - **Laptop ⇄ Tablet state machine** — persistent across shell reloads, OSD
   feedback, IPC-controlled.
 - **Rotation** — 4-way manual cycle (`SUPER+SHIFT+R`), sensor auto-follow
-  (iio-sensor-proxy, tablet mode), or stepwise ⟲/⟳ 90° buttons in the
-  tablet popup (icon-only, replaces the old numeric picker). Touch
-  calibration is rotated along with the screen (Hyprland does not do this
-  itself). **Selecting Laptop mode always returns the display to the default
-  0° landscape** — even mid-rotation, the reset is queued until the current
-  rotation finishes.
+  (iio-sensor-proxy), or stepwise ⟲/⟳ 90° buttons in the tablet popup.
+  **Entering tablet mode never rotates the display by itself** (v1.4): the
+  screen stays where it is; rotation happens only explicitly, or through the
+  sensor when the `auto` preset is on. Touch calibration is rotated along
+  with the screen (Hyprland does not do this itself). **Selecting Laptop
+  mode always returns the display to the default 0° landscape** — even
+  mid-rotation, the reset is queued until the current rotation finishes.
 - **Virtual keyboard** — squeekboard via `SUPER+U`, the **tablet bar button**
   (live show/hide state), or a 3-finger tap (`texp-touch`). The bottom-edge
   up-swipe gesture (texp-vk daemon) is **disabled by default since v1.2.1**;

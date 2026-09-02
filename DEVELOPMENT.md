@@ -205,6 +205,19 @@ relogin/restart so WirePlumber picks the UVC device up.**
 
 ## Next actions
 
+**Done this round (2026-09-02, v1.4.0): no auto-rotate on tablet entry.**
+
+User: "切换为tablet时，不用自动旋转屏幕90度的，只要根据如果是自动就按照识别到的方向，如果是固定方向也是先不旋转的"
+- applyNext no longer defaults the rotation preset to `auto` on tablet entry,
+  and no longer applies a fixed preset either — the display keeps its current
+  angle on every tablet entry. Rotation now happens ONLY when the user asks
+  (popup Auto / ⟲⟳ / setRotation) or, with the `auto` preset already on,
+  follows the sensor posture (autoOrient path unchanged).
+- Verified live: tablet entry with preset off → transform stays 0; `auto` →
+  follows sensor (left-up → 1); fixed 2 → applied only when explicitly set
+  (entry stays 0); laptop always resets to 0. Widget rotation header fixed to
+  show "off" instead of "undefined".
+
 **Done this round (2026-09-02, v1.3.0): per-icon on/off toggles + Hide/Show all.**
 
 User: "似乎没有实现；且加上隐藏的 icon 可以是 on/off 切换来是否展示；也应该也有 hide all or show all 快速全部切换"

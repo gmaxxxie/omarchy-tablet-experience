@@ -290,7 +290,7 @@ Panel {
 
         PanelSectionHeader {
           text: "Rotation" + (root.tabletRotation === "auto"
-            ? "" : " · " + {"0": "0°", "1": "90°", "2": "180°", "3": "270°"}[root.tabletRotation])
+            ? "" : " · " + {"off": "off", "0": "0°", "1": "90°", "2": "180°", "3": "270°"}[root.tabletRotation])
         }
 
         // Auto (sensor) + manual 90° steps, icon-only — replaces the old
