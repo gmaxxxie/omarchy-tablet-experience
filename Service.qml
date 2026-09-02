@@ -845,10 +845,11 @@ Item {
     }
   }
 
-  // Direction pad (v1.11): a left-side cursor-key cluster shown with voice
-  // input — move the caret to fix the dictated text (wtype -k Left/Right/
-  // Up/Down). Anchored left-edge only (no top/bottom) -> floats vertically
-  // centered on the left, away from the bottom-right voice bar.
+  // Direction pad (v1.11, bottom-left v1.12.1): a cursor-key row shown with
+  // voice input — move the caret to fix the dictated text (wtype -k
+  // Left/Right/Up/Down). Anchored bottom-left, on the SAME horizontal line as
+  // the voice bar's Delete/Clear/Enter row (same 44px height / 232px width /
+  // bottom edge), so one hand can reach both dictation and caret keys.
   Variants {
     model: Quickshell.screens
     delegate: Component {
@@ -863,23 +864,21 @@ Item {
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
         exclusionMode: ExclusionMode.Ignore
 
-        anchors { left: true }
-        margins { left: 24 }
-        implicitWidth: 168
-        implicitHeight: 168
+        // bottom margin 40 == voice bar (28 margin + 12 internal padding)
+        // so the arrow row sits on the same baseline as the action buttons.
+        anchors { bottom: true; left: true }
+        margins { bottom: 40; left: 28 }
+        implicitWidth: 232
+        implicitHeight: 44
 
-        // 2x2 arrow grid: left/right on top (most used for editing), up/down
-        // below (move between lines).
-        Grid {
+        Row {
           anchors.centerIn: parent
-          columns: 2
-          rowSpacing: 8
-          columnSpacing: 8
+          spacing: 8
 
           Rectangle {
-            width: 80
-            height: 80
-            radius: 16
+            width: 52
+            height: 44
+            radius: 12
             color: Util.alpha(Color.accent, 0.12)
             border.width: 1
             border.color: Util.alpha(Color.foreground, 0.3)
@@ -888,14 +887,14 @@ Item {
               text: "\u2190"        // ←
               color: Color.foreground
               font.family: Style.font.family
-              font.pixelSize: 30
+              font.pixelSize: 22
             }
             TapHandler { onTapped: root.sendArrow("Left") }
           }
           Rectangle {
-            width: 80
-            height: 80
-            radius: 16
+            width: 52
+            height: 44
+            radius: 12
             color: Util.alpha(Color.accent, 0.12)
             border.width: 1
             border.color: Util.alpha(Color.foreground, 0.3)
@@ -904,14 +903,14 @@ Item {
               text: "\u2192"        // →
               color: Color.foreground
               font.family: Style.font.family
-              font.pixelSize: 30
+              font.pixelSize: 22
             }
             TapHandler { onTapped: root.sendArrow("Right") }
           }
           Rectangle {
-            width: 80
-            height: 80
-            radius: 16
+            width: 52
+            height: 44
+            radius: 12
             color: Util.alpha(Color.accent, 0.12)
             border.width: 1
             border.color: Util.alpha(Color.foreground, 0.3)
@@ -920,14 +919,14 @@ Item {
               text: "\u2191"        // ↑
               color: Color.foreground
               font.family: Style.font.family
-              font.pixelSize: 30
+              font.pixelSize: 22
             }
             TapHandler { onTapped: root.sendArrow("Up") }
           }
           Rectangle {
-            width: 80
-            height: 80
-            radius: 16
+            width: 52
+            height: 44
+            radius: 12
             color: Util.alpha(Color.accent, 0.12)
             border.width: 1
             border.color: Util.alpha(Color.foreground, 0.3)
@@ -936,7 +935,7 @@ Item {
               text: "\u2193"        // ↓
               color: Color.foreground
               font.family: Style.font.family
-              font.pixelSize: 30
+              font.pixelSize: 22
             }
             TapHandler { onTapped: root.sendArrow("Down") }
           }
