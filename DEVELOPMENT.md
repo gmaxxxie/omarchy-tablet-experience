@@ -210,6 +210,50 @@ relogin/restart so WirePlumber picks the UVC device up.**
 
 ## Next actions
 
+**Today's work (2026-09-02, v1.5.0 → v1.12.2)** — one big tablet-input session,
+16 commits (f190407..29056ff), all pushed to origin/main:
+
+| Ver | What | Notes |
+|---|---|---|
+| 1.5.0 | **Voice input (voxtype hold-to-talk)** | top-bar mic icon → bottom hold-to-talk button; `voxtype record start/stop` (SIGUSR1/2), state mirrored from voxtype's state file; IPC `voiceInputToggle/Show/Hide` |
+| 1.5.1 | voice button → bottom-right | relative anchor, 28px margins |
+| 1.6.0 | ⏎ **Enter** button (wtype Return) | submit dictated line |
+| 1.7.0 | **Virtual-keyboard number row** | custom squeekboard us/us_wide layouts + GNOME input-sources GSettings="us" (squeekboard resolves its layout name from there) |
+| 1.8.0 | **Window-manage dedicated icon** | close ✕ / move-to-workspace 1-10 popup, no longer buried in ⋮ |
+| 1.8.1 | **Top bar no longer disappears on keyboard detach** | root cause: 5px top-edge strip's TapHandler swallowed a stray touch at tablet-entry and flipped `bar-off`; strip now arms 2s after showing |
+| 1.9.0 | **Auto-orient calibrated** | 4-position physical calibration fixed texp-orient's X/Y mapping (landscape −Y, right-down +X, left-down −X, upside-down +Y); self-check + live verified |
+| 1.10.0 | **Delete / Clear** buttons (BackSpace / select-all+delete) | beside Enter |
+| 1.10.1 | English labels + tidy equal-width row | Delete/Clear/Enter, English hint |
+| 1.10.2 | mic centered relative to action row | Column children are left-aligned by default |
+| 1.11.0 | **Direction pad + voice↔VK exclusivity + VK arrows** | left-side ↑↓←→ caret keys; opening voice closes the OSK and vice-versa; arrow row in squeekboard layout |
+| 1.12.0 | **Virtual keyboard → wvkbd-deskintl** | wlroots-native with Ctrl/Super/Alt/Shift/AltGr + F1-F12 + numbers + arrows, sized 350px; texp-vk controls it via signals + mirrors visibility to `~/.local/state/texp-vk/visible`; squeekboard stays as fallback; build helper `texp-install-wvkbd` (AUR ships only mobintl) |
+| 1.12.1 | direction pad → **bottom-left**, same line as Delete/Clear/Enter | 44px single arrow row, aligned bottom edge |
+| 1.12.2 | **Two-finger tap = RIGHT CLICK** | was close-panels; injected via ydotool (uinput) `click 3` at the touch point; added ydotool + uinput udev rule + ydotool.service; current session runs daemons under `input` group via newgrp/setpriv |
+
+---
+
+**TODO / open items & plans (2026-09-02)**
+
+Pending user verification (touchscreen — needs physical hands):
+- [ ] wvkbd-deskintl **Chinese input** (fcitx5 candidates via number row) — tap-test
+- [ ] wvkbd **modifier keys** (Sup/Ctr/Alt) in an AI terminal — tap-test
+- [ ] **two-finger tap = right-click** (context menu / terminal paste)
+- [ ] full voice flow: hold-talk → transcribe → ↑↓←→ caret → Delete/Clear → Enter
+- [ ] top-bar detach fix (2s strip debounce) — long-term observe
+- [ ] voice direction pad / action-row alignment — visual check (`~/voice-dirpad-align.png`)
+
+Known caveats / follow-ups:
+- [ ] Current session lacks the `input` group (needs re-login): ydotoold + texp-touch are running under it via newgrp/setpriv; next login the ydotool.service + autostart take over automatically
+- [ ] wvkbd panel height is 350px (`-L`); tune if too big/small — `OMARCHY_VK_HEIGHT_LANDSCAPE`
+- [ ] wvkbd-deskintl is built by `scripts/texp-install-wvkbd` (needs cairo/pango/wayland/libxkbcommon dev pkgs) — validate on a fresh machine
+- [ ] replacing 2-finger-close-panels lost the close gesture (gesture set is full) — move it to another gesture (e.g. 4-finger tap) if still wanted
+
+Plans / ideas:
+- [ ] voice text post-processing / replacement table (voxtype supports it)
+- [ ] wvkbd color scheme matched to the current theme
+- [ ] Chinese candidate UX on wvkbd (e.g. dedicated pinyin layer / bigger digits)
+- [ ] confirm squeekboard fallback path still clean after the wvkbd switch (it stays installed)
+
 **Done this round (2026-09-02, v1.4.0): no auto-rotate on tablet entry.**
 
 User: "切换为tablet时，不用自动旋转屏幕90度的，只要根据如果是自动就按照识别到的方向，如果是固定方向也是先不旋转的"
