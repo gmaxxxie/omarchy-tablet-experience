@@ -2,18 +2,19 @@
 """texp-orient — IIO accelerometer posture probe (tablet experience).
 
 Reads accel_3d from sysfs (no extra packages needed) and classifies the
-device posture using the iio-sensor-proxy convention for the *dominant* axis:
+device posture from the *dominant* axis (calibrated for this board, see
+classify() for the full table):
 
-  normal      screen-facing user, top edge up   (laptop / standing tablet)
-  bottom-up   flipped 180° (typical tablet fold-back)   [g on +Z dominant]
-  right-up    portrait, RIGHT edge up            [g on +X dominant]
-  left-up     portrait, LEFT edge up             [g on -X dominant]
+  normal      landscape (打横) held / flat, screen up  [-Y or -Z dominant]
+  bottom-up   upside down 180°, or screen down flat    [+Y or +Z dominant]
+  right-up    portrait, LEFT long edge down            [-X dominant]
+  left-up     portrait, RIGHT long edge down           [+X dominant]
   unknown     flat / not enough signal
 
-IMPORTANT: sensor mounting (lid vs base) and axis sign conventions differ per
-board, so the label is a *starting point*, not truth. Verify physically once:
+NOTE: sensor mounting and axis signs differ per board; this calibration was
+measured physically on the ThinkPad X12 (DEVELOPMENT.md Phase 6). If you
+re-use texp-orient elsewhere, verify once with:
   texp-orient --watch        # tilt the device through all 4 postures
-Then note corrections in README Phase 6.
 
 Also prints the raw gravity vector so a calibration table can be derived.
 """
@@ -76,13 +77,27 @@ def read_vector():
 
 
 def classify(g):
-    """Dominant-axis label per iio-sensor-proxy conventions."""
+    """Dominant-axis posture label.
+
+    Calibrated for the ThinkPad X12 accel (2026-09-02, 4-position physical
+    calibration — see DEVELOPMENT.md Phase 6):
+      landscape (打横)         dominant -Y  -> normal     (transform 0)
+      right long edge down     dominant +X  -> left-up    (transform 1, 90°)
+      left long edge down      dominant -X  -> right-up   (transform 3, 270°)
+      upside down 180°         dominant +Y  -> bottom-up  (transform 2, 180°)
+      flat, screen up          dominant -Z  -> normal
+      flat, screen down        dominant +Z  -> bottom-up
+    (iio-sensor-proxy's own mapping is NOT used here — its D-Bus property
+    stays "undefined" on this board; see Service.qml header. The previous
+    mapping followed the iio convention on X/Y which was rotated vs. this
+    accelerometer's actual mounting.)
+    """
     dom = max(range(3), key=lambda i: abs(g[i]))
     val = g[dom]
     if abs(val) < 4.0:                      # near-flat fallback threshold
         return "unknown"
-    return ["normal", "right-up", "bottom-up", "left-up"][dom] if val > 0 \
-        else ["bottom-up", "left-up", "normal", "right-up"][dom]
+    return ["left-up", "bottom-up", "bottom-up"][dom] if val > 0 \
+        else ["right-up", "normal", "normal"][dom]
 
 
 def main():
