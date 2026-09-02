@@ -678,6 +678,10 @@ Item {
             width: 120
             height: 120
             radius: width / 2
+            // Center relative to the action row below (Column children are
+            // left-aligned by default — anchor it so the mic sits on the
+            // same center line as Delete / Clear / Enter).
+            anchors.horizontalCenter: parent.horizontalCenter
             color: (root.holding || root.recording)
               ? Util.alpha(Color.urgent, 0.9)
               : Util.alpha(Color.accent, 0.14)
