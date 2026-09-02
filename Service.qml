@@ -6,14 +6,16 @@ import qs.Commons
 
 // Tablet Experience — Laptop/Tablet state machine (Phases 7–10).
 //
-// Voice input (v1.5): in tablet mode the bar shows a mic icon that opens /
-// closes a bottom-anchored hold-to-talk button. Press & hold it ->
+// Voice input (v1.5, ⏎ v1.6): in tablet mode the bar shows a mic icon that
+// opens / closes a bottom-anchored hold-to-talk button. Press & hold it ->
 // `voxtype record start` (SIGUSR1 to the voxtype daemon), release ->
 // `voxtype record stop` (SIGUSR2), and voxtype transcribes the clip and
-// types it at the cursor (wtype, full CJK support). Live state mirrors
-// voxtype's own state file ($XDG_RUNTIME_DIR/voxtype/state), so the visuals
-// agree with the F9 / SUPER+CTRL+X hotkeys too; leaving tablet mode (or
-// re-tapping the mic icon) never strands a recording.
+// types it at the cursor (wtype, full CJK support). A ⏎ Enter button
+// underneath presses Return at the cursor (wtype -k Return) to submit the
+// dictated line. Live state mirrors voxtype's own state file
+// ($XDG_RUNTIME_DIR/voxtype/state), so the visuals agree with the F9 /
+// SUPER+CTRL+X hotkeys too; leaving tablet mode (or re-tapping the mic
+// icon) never strands a recording.
 //
 // Persistent state (survives shell reloads via PersistentProperties):
 //   mode             "laptop" | "tablet"
@@ -469,6 +471,13 @@ Item {
     vxCmd.running = true
   }
 
+  // v1.6: the overlay's ⏎ button presses Enter at the cursor (wtype -k
+  // Return) — submit the just-dictated line (chat, terminal, search box…).
+  function sendEnter() {
+    enterCmd.command = ["wtype", "-k", "Return"]
+    enterCmd.running = true
+  }
+
   // Voxtype state names: idle / recording / transcribing / outputting /
   // streaming / eager-recording (src/state.rs, written to the state file).
   function updateVoxtypeState(name) {
@@ -483,6 +492,7 @@ Item {
   }
 
   Process { id: vxCmd }
+  Process { id: enterCmd }
 
   // ------------------------------------------------- tablet-mode bar toggle
 
@@ -611,11 +621,11 @@ Item {
         anchors { bottom: true; right: true }
         margins { bottom: 28; right: 28 }
         implicitWidth: 220
-        implicitHeight: 200
+        implicitHeight: 230
 
         Column {
           anchors.centerIn: parent
-          spacing: 14
+          spacing: 12
 
           Text {
             anchors.horizontalCenter: parent.horizontalCenter
@@ -677,6 +687,41 @@ Item {
               onPressed: root.startRecording()
               onReleased: root.stopRecording()
               onCanceled: root.stopRecording()
+            }
+          }
+
+          // ⏎ Enter — v1.6: after dictation, tap to press Enter at the cursor
+          // (wtype -k Return), e.g. to submit a chat/terminal/search line.
+          Rectangle {
+            id: enterButton
+            width: micCircle.width
+            height: 46
+            radius: 12
+            color: Util.alpha(Color.accent, 0.12)
+            border.width: 1
+            border.color: Util.alpha(Color.foreground, 0.3)
+
+            Row {
+              anchors.centerIn: parent
+              spacing: 8
+              Text {
+                text: "\u23CE"        // ⏎ (verified in the bar font)
+                color: Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+                opacity: 0.7
+              }
+              Text {
+                text: "Enter"
+                color: Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+                font.bold: true
+              }
+            }
+
+            TapHandler {
+              onTapped: root.sendEnter()
             }
           }
         }
