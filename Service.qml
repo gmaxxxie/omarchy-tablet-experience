@@ -6,16 +6,16 @@ import qs.Commons
 
 // Tablet Experience — Laptop/Tablet state machine (Phases 7–10).
 //
-// Voice input (v1.5, ⏎ v1.6): in tablet mode the bar shows a mic icon that
-// opens / closes a bottom-anchored hold-to-talk button. Press & hold it ->
-// `voxtype record start` (SIGUSR1 to the voxtype daemon), release ->
-// `voxtype record stop` (SIGUSR2), and voxtype transcribes the clip and
-// types it at the cursor (wtype, full CJK support). A ⏎ Enter button
-// underneath presses Return at the cursor (wtype -k Return) to submit the
-// dictated line. Live state mirrors voxtype's own state file
-// ($XDG_RUNTIME_DIR/voxtype/state), so the visuals agree with the F9 /
-// SUPER+CTRL+X hotkeys too; leaving tablet mode (or re-tapping the mic
-// icon) never strands a recording.
+// Voice input (v1.5, ⏎ v1.6, 删除/清空 v1.10): in tablet mode the bar shows
+// a mic icon that opens / closes a bottom-anchored hold-to-talk button.
+// Press & hold it -> `voxtype record start` (SIGUSR1 to the voxtype daemon),
+// release -> `voxtype record stop` (SIGUSR2), and voxtype transcribes the
+// clip and types it at the cursor (wtype, full CJK support). A button row
+// underneath offers 删除 (BackSpace), 清空 (select-all + delete) and ⏎ Enter
+// (Return) to fix or submit the dictated line. Live state mirrors voxtype's
+// own state file ($XDG_RUNTIME_DIR/voxtype/state), so the visuals agree with
+// the F9 / SUPER+CTRL+X hotkeys too; leaving tablet mode (or re-tapping the
+// mic icon) never strands a recording.
 //
 // Persistent state (survives shell reloads via PersistentProperties):
 //   mode             "laptop" | "tablet"
@@ -63,7 +63,7 @@ import qs.Commons
 Item {
   id: root
 
-  Component.onCompleted: console.log("tablet-experience Service LOADED v1.5")
+  Component.onCompleted: console.log("tablet-experience Service LOADED v1.10")
 
   property var shell: null
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
@@ -478,6 +478,21 @@ Item {
     enterCmd.running = true
   }
 
+  // v1.10: 删除 — delete the last character (BackSpace), to fix a
+  // mistranscribed word without retyping.
+  function deleteLastChar() {
+    delCmd.command = ["wtype", "-k", "BackSpace"]
+    delCmd.running = true
+  }
+
+  // v1.10: 清空 — clear the whole input field (select-all then delete), to
+  // wipe a bad dictation and start over. Works in standard text fields
+  // (chat / search); in a terminal it clears the current line.
+  function clearInput() {
+    clrCmd.command = ["bash", "-c", "wtype -M ctrl -k a && wtype -k BackSpace"]
+    clrCmd.running = true
+  }
+
   // Voxtype state names: idle / recording / transcribing / outputting /
   // streaming / eager-recording (src/state.rs, written to the state file).
   function updateVoxtypeState(name) {
@@ -493,6 +508,8 @@ Item {
 
   Process { id: vxCmd }
   Process { id: enterCmd }
+  Process { id: delCmd }
+  Process { id: clrCmd }
 
   // ------------------------------------------------- tablet-mode bar toggle
 
@@ -635,7 +652,7 @@ Item {
 
         anchors { bottom: true; right: true }
         margins { bottom: 28; right: 28 }
-        implicitWidth: 220
+        implicitWidth: 240
         implicitHeight: 230
 
         Column {
@@ -705,38 +722,74 @@ Item {
             }
           }
 
-          // ⏎ Enter — v1.6: after dictation, tap to press Enter at the cursor
-          // (wtype -k Return), e.g. to submit a chat/terminal/search line.
-          Rectangle {
-            id: enterButton
-            width: micCircle.width
-            height: 46
-            radius: 12
-            color: Util.alpha(Color.accent, 0.12)
-            border.width: 1
-            border.color: Util.alpha(Color.foreground, 0.3)
+          // Action row (v1.10): 删除 (BackSpace) · 清空 (select-all+delete) ·
+          // ⏎ Enter (submit) — fix or send the just-dictated text.
+          Row {
+            id: actionRow
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: 232
+            spacing: 8
 
-            Row {
-              anchors.centerIn: parent
-              spacing: 8
+            Rectangle {
+              width: (actionRow.width - actionRow.spacing * 2) / 3
+              height: 44
+              radius: 12
+              color: Util.alpha(Color.accent, 0.12)
+              border.width: 1
+              border.color: Util.alpha(Color.foreground, 0.3)
               Text {
-                text: "\u23CE"        // ⏎ (verified in the bar font)
+                anchors.centerIn: parent
+                text: "删除"
                 color: Color.foreground
                 font.family: Style.font.family
                 font.pixelSize: Style.font.body
-                opacity: 0.7
               }
-              Text {
-                text: "Enter"
-                color: Color.foreground
-                font.family: Style.font.family
-                font.pixelSize: Style.font.body
-                font.bold: true
-              }
+              TapHandler { onTapped: root.deleteLastChar() }
             }
 
-            TapHandler {
-              onTapped: root.sendEnter()
+            Rectangle {
+              width: (actionRow.width - actionRow.spacing * 2) / 3
+              height: 44
+              radius: 12
+              color: Util.alpha(Color.accent, 0.12)
+              border.width: 1
+              border.color: Util.alpha(Color.foreground, 0.3)
+              Text {
+                anchors.centerIn: parent
+                text: "清空"
+                color: Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+              }
+              TapHandler { onTapped: root.clearInput() }
+            }
+
+            Rectangle {
+              width: (actionRow.width - actionRow.spacing * 2) / 3
+              height: 44
+              radius: 12
+              color: Util.alpha(Color.accent, 0.12)
+              border.width: 1
+              border.color: Util.alpha(Color.foreground, 0.3)
+              Row {
+                anchors.centerIn: parent
+                spacing: 5
+                Text {
+                  text: "\u23CE"        // ⏎ (verified in the bar font)
+                  color: Color.foreground
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.body
+                  opacity: 0.7
+                }
+                Text {
+                  text: "Enter"
+                  color: Color.foreground
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.body
+                  font.bold: true
+                }
+              }
+              TapHandler { onTapped: root.sendEnter() }
             }
           }
         }
