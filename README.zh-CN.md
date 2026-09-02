@@ -10,8 +10,10 @@
 ## 功能特性
 
 - **Laptop ⇄ Tablet 状态机** — 跨 shell 重启持久化，OSD 反馈，IPC 可控。
-- **旋转** — 手动四向循环（`SUPER+SHIFT+R`）、传感器自动跟随（iio-sensor-proxy，仅平板模式）、或固定 0°/90°/180°/270° 预设。触摸校准随屏幕一起旋转（Hyprland 自身不会做这件事）。
-- **虚拟键盘** — squeekboard，`SUPER+U`、屏幕底部上滑或顶部栏键盘图标点击切换（图标仅在平板模式显示，高亮表示键盘可见）。
+- **旋转** — 手动四向循环（`SUPER+SHIFT+R`）、传感器自动跟随（iio-sensor-proxy，仅平板模式）、或平板弹层里的 ⟲/⟳ 90° 步进按钮。触摸校准随屏幕一起旋转（Hyprland 自身不会做这件事）。**选择 Laptop 模式时屏幕必定回到默认 0° 横向**——即使旋转还在进行中，重置也会排队等它完成。
+- **虚拟键盘** — squeekboard，`SUPER+U`、屏幕底部上滑或顶部栏键盘图标点击切换（图标仅在平板模式显示，高亮表示键盘可见）。手势守护进程现在会一直重试直到触摸屏可读（登录时不再闪退），且 `install.sh` 会为用户授予 evdev 访问权限（udev `uaccess` 规则 + `input` 用户组），重启后底部上滑依然可用。
+- **输入法快速切换** — 顶部栏按钮（**仅平板模式显示**）显示当前 fcitx5 输入法（EN / 中 / …），点一下即切换（`fcitx5-remote -t`）——补上被隐藏的 fcitx5 切换按钮没有的便利。
+- **顶部栏拍击显隐（平板模式）** — 没有鼠标就没有悬停，所以在 bar 上方放一条全宽的细边缘条：隐藏时轻点顶部 → 显示，再点一次 → 隐藏（驱动 Omarchy 自己的 `bar-off` 开关）。
 - **多点触控手势**（`texp-touch`，被动 evdev 监听、不抢占设备）— 双指轻点：关闭手指下的面板/窗口 · 双指左/右滑：上一个/下一个工作区 · 双指下滑：呼出 Omarchy 菜单 · 单指轻点：聚焦被点窗口（Hyprland 触摸从不聚焦）。
 - **键盘自动模式切换** — 接上键盘 → laptop 模式，拆下 → tablet 模式（USB 存在性检测，默认开启）。
 - **平板窗口管理** — 平板模式下 bar 按钮弹出：关闭最近触摸的窗口 ✕、移动到工作区 1–10、切换布局 Dwindle/Scrolling。只瞄准可见窗口，操作有通知反馈。
@@ -47,7 +49,7 @@ omarchy plugin add https://github.com/gmaxxxie/omarchy-tablet-experience.git --e
 | `--dry-run` | 只预览，不修改任何东西 |
 | `--verify` | 升级后自检（只读，见"升级与安全"） |
 
-安装内容：8 个 helper 守护进程到 `~/.local/bin`、一份 `tablet-experience.lua` Hyprland 配置（触摸滑动 + 三个按键绑定，并在你的 `hyprland.lua` 追加一行 `require`）、以及 `autostart.lua` 里的自启钩子（`texp-vk` / `texp-touch`）。所有被改动的文件都会先留 `*.bak.<时间戳>` 备份。
+安装内容：8 个 helper 守护进程到 `~/.local/bin`、一份 `tablet-experience.lua` Hyprland 配置（触摸滑动 + 三个按键绑定 + 顶部栏条的 z-index，并在你的 `hyprland.lua` 追加一行 `require`）、`autostart.lua` 里的自启钩子（`texp-vk` / `texp-touch`）、以及**手势守护进程的 evdev 访问权限**：项目自带的 udev 规则给 `/dev/input/event*` 打上 `uaccess` 标签（logind 立刻给当前会话发读 ACL，无需退出登录），并把你加入 `input` 用户组（下次登录生效）。所有被改动的文件都会先留 `*.bak.<时间戳>` 备份。
 
 **安装后重新登录一次**，让 shell 全新加载插件，然后用 `install.sh --verify` 验证。
 
@@ -57,7 +59,9 @@ omarchy plugin add https://github.com/gmaxxxie/omarchy-tablet-experience.git --e
 |---|---|
 | 切换 Laptop/Tablet 模式 | `SUPER+SHIFT+U`（或 bar 按钮左键） |
 | 下一个旋转预设 | `SUPER+SHIFT+R`（或 bar 按钮右键） |
+| 切换输入法（EN ⇄ 中） | **bar 常驻按钮（仅平板模式）**（显示当前输入法） |
 | 虚拟键盘 | `SUPER+U` · 屏幕底部上滑 · **顶部栏键盘图标（仅平板模式）**（点击显示/隐藏，高亮表示已显示） |
+| 显示/隐藏顶部栏（平板模式） | 轻点屏幕顶部边缘 / 顶部栏空白处（隐藏时 16px、显示时 5px） |
 | 关闭面板/被触摸窗口 | 双指轻点 |
 | 上一/下一工作区 | 双指左/右滑 |
 | Omarchy 菜单 | 双指下滑 |

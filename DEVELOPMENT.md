@@ -205,6 +205,60 @@ relogin/restart so WirePlumber picks the UVC device up.**
 
 ## Next actions
 
+**Done this round (2026-09-02, v1.1.0):** four user issues from real-device use.
+
+1. **Laptop mode must always return to the default angle** — already shipped in
+   v0.7.1/v0.7.2 (`pendingLaptopReset`/`tryLaptopReset`); re-verified live on
+   the current session: tablet → sensor 90° (transform 1) → `setRotation 3`
+   (transform 3) → Laptop → **transform 0**, plus a rapid tablet⇄laptop stress
+   toggle mid-rotation also lands on 0. The tablet rotation preset is kept for
+   the next tablet entry, only the DISPLAY is reset.
+
+2. **After reboot the virtual keyboard bottom up-swipe stopped working** — root
+   cause found on this machine: the gesture daemons (`texp-vk` / `texp-touch`)
+   crashed instantly at login with `PermissionError` on `/dev/input/event*`
+   (the desktop user has no read access: not in group `input`, no logind
+   uaccess ACLs — `/etc/group` input line is empty and input nodes are
+   `root:input 660`). Three-part fix:
+   - `install.sh` now grants evdev access: a project udev rule
+     (`/etc/udev/rules.d/99-tablet-experience-input.rules`,
+     `TAG+="uaccess"` on `event*`) + `udevadm trigger` → logind hands the
+     ACTIVE session read ACLs immediately (no logout), plus `usermod -aG
+     input $USER` as a next-login fallback. `uninstall.sh` removes the rule
+     (byte-match only); `--verify` checks both.
+   - both daemons now scan resiliently (skip unreadable nodes instead of
+     crashing on event0), retry while the failure looks like missing
+     permissions (infinite, 3 s; logged at most every 30 s), and only exit
+     when /dev/input is empty entirely. Verified live: daemons launched via
+     the autostart path (`texp-vk daemon` / `texp-touch daemon`) now stay up
+     in a retry loop instead of dying; once access appears (install.sh or next
+     login) they go live within one poll. (Activating the udev rule on this
+     machine needs one `install.sh` run with sudo — the only privileged step;
+     everything else is user-space.)
+
+3. **Tablet-mode top-bar toggle** — with no mouse there is no hover to reveal
+   Omarchy's (optional) hidden/transparent top bar, so Service.qml now owns a
+   thin full-width Top-layer edge strip (`maxt-tablet-bar-strip`, layerrule
+   `zindex 3` above the bar): in tablet mode, tap when the bar is hidden
+   (strip 16 px, faint grab pill) → show; tap again (strip shrinks to 5 px) →
+   hide. It drives the official `omarchy-toggle-bar` (bar-off flag + syncHidden
+   IPC) and mirrors the flag via the same probe Bar.qml uses (FileView on
+   `~/.local/state/omarchy/toggles`). New IPC: `toggleBar` /
+   `setBarHidden <on|off|toggle>`; `getState` now reports `barHidden`.
+   Verified live: strip surface maps at (0,0,800x5) in tablet mode, grows to
+   800x16 on `setBarHidden on`, bar parks at (0,-30) and returns on show.
+
+4. **fcitx5 input-method switch must be reachable** — the built-in
+   keyboard-layout widget only cycles xkb layouts, not fcitx input methods, and
+   fcitx5's own switch is hidden, so the bar widget gained an IM button
+   (**tablet mode only**, per user follow-up: laptop keeps the hardware
+   keyboard and fcitx5's own trigger; tablet needs a touch entry): shows the
+   active method (EN / 中 / other via `fcitx5-remote -n` mapping) and toggles
+   with one tap (`fcitx5-remote -t`), polled every 1.5 s while visible.
+   Live-verified the fcitx5 side: `-t` switches rime ⇄ keyboard-us, `-n`
+   reports the active method; in laptop mode the button and its poller are
+   hidden/unmounted.
+
 **Done this round (2026-08-29, v0.7.2):** two UX fixes from the physical test pass. (1) The top-bar keyboard icon is now **tablet-mode only** (`visible: root.tablet` on vkButton; D-Bus state polling gated the same way) — in laptop the widget is a single button again (verified live: bar widget 37px → 71px ↔ 37px across modes via `debugBarGeometry`). (2) Laptop-mode display reset (v0.7.1) hardened: the reset to 0° is now queued (`pendingLaptopReset` + `tryLaptopReset()` retried from `rotateProcess.onStreamFinished`) instead of being silently dropped when a rotation from tablet mode is still in flight — the earlier `if (!rotateProcess.running)` guard could skip it entirely. Verified live: enter tablet (sensor→90°), ⟲ manual (180°), back to laptop → monitor + touch transform both 0; rapid tablet→laptop toggle mid-rotation also lands on 0.
 
 **Done this round (2026-08-29, v0.7.0):** user asked for the simplest possible virtual-keyboard control — no (re)building a hide button into squeekboard (stock us/us_wide layouts ship **no** hide key at all; bottom-right is ⏎ Return — verified against both the installed 1.43.1 binary's embedded layout and current gitlab master). Added a dedicated **keyboard icon** to the always-mounted bar widget (fa-keyboard U+F11C, glyph verified in the bar font): click toggles squeekboard through `texp-vk toggle` (same path as SUPER+U / up-swipe, starts squeekboard on demand), and the icon highlights while the keyboard is visible by polling squeekboard's D-Bus `.Visible` every 1.5 s (350 ms right after a click) — same single source of truth texp-vk already uses, so icon, gesture, and shortcut never disagree. Layout: two WidgetButtons share one bar slot via a Row; popup, mode logic, and IPC untouched.

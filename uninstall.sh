@@ -68,6 +68,29 @@ for src in "$REPO_ROOT"/scripts/texp-*; do
   remove_deprecated_file "$BIN_DIR/$(basename "$src")" "$src" "helper script"
 done
 
+# ------------------------------------------------------- input-device access
+# Remove the udev rule install.sh wrote (only when it still byte-matches).
+# The user's `input` group membership is NOT removed: it may predate the
+# plugin, and losing it could silently break other input tools.
+INPUT_RULE=/etc/udev/rules.d/99-tablet-experience-input.rules
+INPUT_RULE_CONTENT='# Tablet Experience (maxt.tablet-experience) - grant the active seat
+# session read access to /dev/input/event* so the gesture daemons
+# (texp-vk / texp-touch) can watch the touchscreen. Managed by
+# install.sh/uninstall.sh; identical to the stock uaccess tag Arch
+# applies to joysticks/sound devices.
+SUBSYSTEM=="input", KERNEL=="event*", TAG+="uaccess"
+'
+if [ -e "$INPUT_RULE" ]; then
+  if cmp -s <(printf '%s' "$INPUT_RULE_CONTENT") "$INPUT_RULE"; then
+    run sudo rm -f "$INPUT_RULE"
+    log "removed input-device udev rule: $INPUT_RULE"
+    run sudo udevadm control --reload
+    run sudo udevadm trigger --subsystem-match=input
+  else
+    warn "$INPUT_RULE differs from what install.sh wrote — left in place"
+  fi
+fi
+
 # ------------------------------------------------------- summary
 cat <<EOF
 

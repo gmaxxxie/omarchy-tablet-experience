@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 
 // Tablet Experience — Laptop/Tablet state machine (Phases 7–10).
 //
@@ -22,15 +23,24 @@ import Quickshell.Io
 // forces the display back to the default 0° landscape (silently), while the
 // tablet rotation preset/autoOrient are kept for the next tablet entry.
 //
+// Tablet-mode top-bar toggle (v1.1): with no mouse there is no hover to
+// reveal the (optionally hidden/transparent) Omarchy top bar, so in tablet
+// mode a thin full-width edge strip above the bar toggles it: tap when the
+// bar is hidden → show, tap again → hide. The strip is the plugin's own
+// Top-layer surface (namespace maxt-tablet-bar-strip) and only exists in
+// tablet mode; it drives the official `omarchy-toggle-bar` bar-off flag so
+// the shell's own rendering/state stays authoritative.
+//
 // IPC (omarchy-shell maxt.tablet-experience <method>):
 //   getState | getMode | toggle | setMode <laptop|tablet>
 //   setRotation <off|0|2> | setAutoOrient <on|off> | setAutoSwitch <on|off>
 //   rotateLeft | rotateRight        (90° relative steps, tablet mode)
+//   toggleBar | setBarHidden <on|off|toggle>   (top-bar visibility)
 
 Item {
   id: root
 
-  Component.onCompleted: console.log("tablet-experience Service LOADED v2")
+  Component.onCompleted: console.log("tablet-experience Service LOADED v3")
 
   property var shell: null
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
@@ -57,6 +67,16 @@ Item {
   // the default 0° landscape — deferred until the rotation process is idle so
   // a rotation still in flight from tablet mode cannot swallow the reset.
   property bool pendingLaptopReset: false
+
+  // Omarchy top-bar visibility (mirrors the `bar-off` flag that
+  // omarchy-toggle-bar maintains). The strip shows/hides it in tablet mode.
+  property bool barHidden: false
+  property string home: Quickshell.env("HOME")
+
+  // Logical heights of the edge strip. Big when the bar is hidden (easy
+  // reveal target), tiny when it is visible (so bar buttons stay reachable).
+  readonly property real stripHiddenHeight: 16
+  readonly property real stripShownHeight: 5
 
   PersistentProperties {
     id: persisted
@@ -319,6 +339,91 @@ Item {
     osdProcess.running = true
   }
 
+  // ------------------------------------------------- tablet-mode bar toggle
+
+  // Drive the OFFICIAL omarchy bar toggle (bar-off flag + syncHidden nudge)
+  // so the shell's own rendering stays the single source of truth.
+  function toggleTopBar() {
+    barCmd.command = ["omarchy-toggle-bar", "toggle"]
+    barCmd.running = true
+  }
+
+  function setTopBarHidden(on) {
+    barCmd.command = ["omarchy-toggle-bar", on ? "on" : "off"]
+    barCmd.running = true
+  }
+
+  Process { id: barCmd }
+
+  // Mirror the bar-off flag (same probe Bar.qml uses). Watching the parent
+  // directory catches flag creation AND removal.
+  Process {
+    id: barHiddenProbe
+    command: ["bash", "-c", "[[ -f $HOME/.local/state/omarchy/toggles/bar-off ]] && echo yes || echo no"]
+    stdout: SplitParser {
+      onRead: function(line) { root.barHidden = String(line).trim() === "yes" }
+    }
+  }
+
+  FileView {
+    path: root.home + "/.local/state/omarchy/toggles"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: if (!barHiddenProbe.running) barHiddenProbe.running = true
+  }
+
+  // Edge strip: one Top-layer window per output, full width, parked at the
+  // top edge. In tablet mode a tap toggles the top bar — the touch equivalent
+  // of Omarchy's hover, and the requested "tap the top bar blank area to
+  // show, tap again to hide". Never mapped in laptop mode (mouse hover works
+  // there and the strip must not steal clicks).
+  Variants {
+    model: Quickshell.screens
+    delegate: Component {
+      PanelWindow {
+        id: strip
+        required property var modelData
+        screen: modelData
+        visible: root.isTabletMode
+        color: "transparent"
+        WlrLayershell.namespace: "maxt-tablet-bar-strip"
+        WlrLayershell.layer: WlrLayer.Top
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        exclusionMode: ExclusionMode.Ignore
+
+        // `layerrule zindex … maxt-tablet-bar-strip` (installed with
+        // config/hypr/tablet-experience.lua) keeps the strip above the bar so
+        // the shown-state tap (hide the bar) reaches it.
+        anchors { top: true; left: true; right: true }
+        implicitWidth: 0
+        implicitHeight: root.barHidden ? root.stripHiddenHeight : root.stripShownHeight
+
+        Rectangle {
+          anchors.fill: parent
+          color: "transparent"
+
+          // A subtle grab pill, only while the bar is hidden, so the tap zone
+          // is discoverable without a mouse.
+          Rectangle {
+            width: 56
+            height: 4
+            radius: 2
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: (parent.height - height) / 2
+            color: "#33ffffff"
+            visible: root.barHidden && root.isTabletMode
+          }
+
+          TapHandler {
+            enabled: root.isTabletMode
+            onTapped: root.toggleTopBar()
+          }
+        }
+      }
+    }
+  }
+
   // ---------------------------------------------------------------- IPC
 
   IpcHandler {
@@ -332,7 +437,8 @@ Item {
         autoSwitchMode: root.autoSwitchMode,
         kbAttached: root.kbAttached,
         orientation: root.orientation,
-        isTabletMode: root.isTabletMode
+        isTabletMode: root.isTabletMode,
+        barHidden: root.barHidden
       })
     }
 
@@ -383,6 +489,19 @@ Item {
     function rotateRight(): string {
       root.rotateStep("prev")
       return root.tabletRotation
+    }
+
+    function toggleBar(): string {
+      root.toggleTopBar()
+      return root.barHidden ? "hidden" : "shown"
+    }
+
+    function setBarHidden(value: string): string {
+      var on = String(value || "toggle").toLowerCase()
+      if (on === "on") root.setTopBarHidden(true)
+      else if (on === "off") root.setTopBarHidden(false)
+      else root.toggleTopBar()
+      return root.barHidden ? "hidden" : "shown"
     }
   }
 }

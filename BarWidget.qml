@@ -4,14 +4,22 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// Tablet Experience — bar widget (v1.0.0): always-mounted entry point with a
-// virtual-keyboard toggle icon (show/hide squeekboard, live state highlight,
-// tablet mode only) plus the window-manage popup.
+// Tablet Experience — bar widget (v1.1.0): always-mounted entry point with an
+// input-method (fcitx5) quick switch and a virtual-keyboard toggle icon
+// (show/hide squeekboard, live state highlight) plus the window-manage popup.
+// Both the IM switch and the keyboard icon are TABLET-MODE ONLY (in laptop
+// mode the physical keyboard is docked); the mode button is always visible.
 //
-// The buttons are always visible so there is always an entry point: laptop
+// The buttons are always mounted so there is always an entry point: laptop
 // mode shows the mode label and the popup only offers Laptop/Tablet;
 // tablet mode switches the label to 窗口 and unlocks, in order:
 // Window (close / move-to-workspace) · Layout (dwindle/scrolling) · Rotation.
+//
+// The IM button (leftmost, tablet mode only) toggles fcitx5's active input
+// method via `fcitx5-remote -t` — with the typical keyboard-us + rime pair
+// that is exactly EN ⇄ 中 — and shows the current input method, so switching
+// is one tap away (the bar's built-in keyboard-layout widget only cycles xkb
+// layouts, not fcitx input methods).
 //
 // The keyboard icon toggles squeekboard through the same texp-vk path as
 // SUPER+U / the bottom-edge swipe and polls squeekboard's D-Bus .Visible so
@@ -41,6 +49,30 @@ Panel {
   // source texp-vk uses — so the icon agrees with SUPER+U and the swipe.
   property bool vkVisible: false
 
+  // Current fcitx5 input method (fcitx5-remote -n), mapped to a short label.
+  property string imName: ""
+  readonly property string imLabel: imLabelFor(root.imName)
+
+  function imLabelFor(name) {
+    var n = String(name || "").toLowerCase()
+    if (!n) return "IM"
+    if (n.indexOf("rime") !== -1 || n.indexOf("wanxiang") !== -1 ||
+        n.indexOf("chinese") !== -1 || n.indexOf("zh") === 0 ||
+        n.indexOf("pinyin") !== -1 || n.indexOf("wubi") !== -1)
+      return "中"
+    if (n.indexOf("keyboard") !== -1 || n.indexOf("us") !== -1 ||
+        n.indexOf("english") !== -1 || n.indexOf("en") === 0)
+      return "EN"
+    return n.length > 2 ? n.substring(0, 2).toUpperCase() : n.toUpperCase()
+  }
+
+  function toggleIm() {
+    imCmd.command = ["fcitx5-remote", "-t"]
+    imCmd.running = true
+    imRefresh.interval = 350
+    imRefresh.restart()
+  }
+
   function toggleVk() {
     vkCmd.command = ["texp-vk", "toggle"]
     vkCmd.running = true
@@ -63,6 +95,25 @@ Panel {
     id: row
     anchors.centerIn: parent
     spacing: Style.spacing.xs
+
+    // Input-method quick switch — TABLET MODE ONLY (in laptop mode the
+    // physical keyboard is docked and fcitx5's own trigger key works
+    // normally). Shows the active fcitx5 input method (EN / 中 / other) and
+    // toggles it on tap (fcitx5-remote -t): one tap = switch. Polled every
+    // 1.5s while visible.
+    WidgetButton {
+      id: imButton
+      bar: root.bar
+      visible: root.tablet
+      text: root.imLabel
+      active: root.imName !== "" && root.imName.indexOf("keyboard") === -1
+      tooltipText: root.imName
+        ? "Input method: " + root.imName + " (click to switch)"
+        : "Input method (fcitx5 not running?)"
+      onPressed: function() {
+        root.toggleIm()
+      }
+    }
 
     // Virtual keyboard show/hide — top-bar icon, TABLET MODE ONLY (in laptop
     // mode the physical keyboard is docked, so the icon stays hidden). Routes
@@ -296,6 +347,34 @@ Panel {
     }
   }
 
+  // -------- input method (fcitx5): toggle process + name poll
+  Process {
+    id: imCmd
+  }
+
+  Process {
+    id: imProbe
+    command: ["fcitx5-remote", "-n"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var n = String(text || "").trim()
+        if (n !== root.imName) root.imName = n
+      }
+    }
+  }
+
+  Timer {
+    id: imRefresh
+    interval: 1500
+    running: root.tablet         // icon hidden in laptop mode — nothing to poll
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: {
+      if (!imProbe.running) imProbe.running = true
+    }
+  }
+
   // -------- virtual keyboard: toggle process + D-Bus visibility poll
   Process {
     id: vkCmd
@@ -322,5 +401,5 @@ Panel {
     }
   }
 
-  Component.onCompleted: console.log("MAXT-WIDGET-ONLINE v0.7 mode=" + (root.tablet ? "tablet" : "laptop"))
+  Component.onCompleted: console.log("MAXT-WIDGET-ONLINE v1.1 mode=" + (root.tablet ? "tablet" : "laptop"))
 }

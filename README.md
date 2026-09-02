@@ -17,9 +17,21 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   (iio-sensor-proxy, tablet mode), or stepwise ⟲/⟳ 90° buttons in the
   tablet popup (icon-only, replaces the old numeric picker). Touch
   calibration is rotated along with the screen (Hyprland does not do this
-  itself).
+  itself). **Selecting Laptop mode always returns the display to the default
+  0° landscape** — even mid-rotation, the reset is queued until the current
+  rotation finishes.
 - **Virtual keyboard** — squeekboard via `SUPER+U`, a bottom-edge up-swipe, or the **tablet-mode-only** keyboard icon in the top bar (live show/hide state).
-  (the `texp-vk` gesture daemon).
+  (the `texp-vk` gesture daemon). The gesture daemons now retry until the
+  touchscreen is readable instead of dying at login, and `install.sh` grants
+  the desktop user evdev access (udev `uaccess` rule + `input` group), so
+  the up-swipe keeps working after a reboot.
+- **Input-method quick switch** — a bar button (**tablet mode only**) shows
+  the active fcitx5 input method (EN / 中 / …) and toggles it with one tap
+  (`fcitx5-remote -t`) — the convenient EN⇄中 switch the hidden fcitx5
+  indicator could not provide.
+- **Top-bar tap toggle (tablet mode)** — no mouse means no hover, so a thin
+  full-width edge strip above the bar toggles it: tap when hidden → show,
+  tap again → hide (drives Omarchy's own `bar-off` flag).
 - **Multi-touch gestures** (`texp-touch`, passive evdev listener, no grab) —
   2-finger tap: close panels/window under finger · 2-finger swipe left/right:
   previous/next workspace · 2-finger swipe down: Omarchy menu · single-finger
@@ -68,10 +80,13 @@ there (it also works from a dev clone).
 | `--verify` | post-upgrade self-check (read-only, see Upgrades) |
 
 What it installs: the 8 helper daemons to `~/.local/bin`, a
-`tablet-experience.lua` Hyprland config (touch swipe + the three keybinds) with
-a one-line `require` appended to your `hyprland.lua`, and autostart hooks
-(`texp-vk` / `texp-touch`) in `autostart.lua`. Every modified file gets a
-`*.bak.<timestamp>` first.
+`tablet-experience.lua` Hyprland config (touch swipe + the three keybinds + the
+bar-strip z-index) with a one-line `require` appended to your `hyprland.lua`,
+autostart hooks (`texp-vk` / `texp-touch`) in `autostart.lua`, and **the
+gesture daemons' evdev access**: a project udev rule tagging `/dev/input/event*`
+with `uaccess` (logind grants your session read ACLs right away — no logout
+needed) plus your user added to the `input` group (applies next login). Every
+modified file gets a `*.bak.<timestamp>` first.
 
 **Re-login once** after installing so the shell loads the plugin fresh, then
 verify with `install.sh --verify`.
@@ -82,7 +97,9 @@ verify with `install.sh --verify`.
 |---|---|
 | Toggle Laptop/Tablet mode | `SUPER+SHIFT+U` (or bar button, left click) |
 | Next rotation preset | `SUPER+SHIFT+R` (or bar button, right click) |
+| Switch input method (EN ⇄ 中) | **bar button, tablet mode only** (shows current IM) |
 | Virtual keyboard | `SUPER+U` · bottom-edge up-swipe · **keyboard icon in the bar, tablet mode only** (click to show/hide, highlighted while visible) |
+| Show/hide top bar (tablet mode) | tap the top edge / bar blank area (16 px strip when hidden, 5 px when shown) |
 | Close panels / touched window | 2-finger tap |
 | Previous / next workspace | 2-finger swipe left / right |
 | Omarchy menu | 2-finger swipe down |
@@ -93,7 +110,7 @@ first, then Close ✕ / Move to Workspace 1–10 / Dwindle·Scrolling layout.
 IPC (`omarchy-shell maxt.tablet-experience <method>`):
 `getState` · `getMode` · `toggle` · `setMode <laptop|tablet>` ·
 `setRotation <off|auto|0|1|2|3>` · `setAutoOrient <on|off>` ·
-`setAutoSwitch <on|off>`.
+`setAutoSwitch <on|off>` · `toggleBar` · `setBarHidden <on|off|toggle>`.
 
 ## Configuration
 

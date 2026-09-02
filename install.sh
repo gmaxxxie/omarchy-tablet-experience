@@ -140,6 +140,19 @@ if [ "$VERIFY" -eq 1 ]; then
   pgrep -f "$BIN_DIR/texp-vk daemon" >/dev/null 2>&1 \
     && ok "texp-vk daemon running" || warn "texp-vk daemon not running (starts at next login)"
 
+  # input-device access (gesture daemons need /dev/input/event*)
+  if [ -f /etc/udev/rules.d/99-tablet-experience-input.rules ] \
+      && grep -q 'TAG+="uaccess"' /etc/udev/rules.d/99-tablet-experience-input.rules; then
+    ok "input-device udev rule present (uaccess)"
+  else
+    bad "input-device udev rule missing — re-run install.sh (sudo needed)"
+  fi
+  if id -nG "$USER" | grep -qw input; then
+    ok "user in group 'input'"
+  else
+    bad "user not in group 'input' — re-run install.sh (effective next login)"
+  fi
+
   if [ "$FAIL" -eq 1 ]; then
     echo; echo "FAILURES FOUND — re-run: $0   (or --no-packages --dry-run to preview)"; exit 1
   fi
@@ -207,6 +220,47 @@ for src in "$REPO_ROOT"/scripts/texp-*; do
   log "install: $dst"
 done
 
+# ------------------------------------------- input-device access (evdev)
+# The gesture daemons (texp-vk / texp-touch) read the touchscreen from
+# /dev/input/event* as the desktop user. On Arch those nodes are root:input
+# 660, and after a reboot the desktop user may have no read access (group
+# `input` empty / logind uaccess ACLs never granted) — the daemons then die
+# at login and the virtual-keyboard bottom up-swipe stops working. Two
+# complementary grants, both idempotent:
+#   1. a project udev rule tags the event nodes with `uaccess` so
+#      systemd-logind hands the ACTIVE seat session read ACLs — effective
+#      IMMEDIATELY (udevadm trigger below) and follows session switches;
+#   2. the user is added to the `input` group as a fallback that needs no
+#      logind involvement (takes effect at next login/reboot).
+INPUT_RULE=/etc/udev/rules.d/99-tablet-experience-input.rules
+INPUT_RULE_CONTENT='# Tablet Experience (maxt.tablet-experience) - grant the active seat
+# session read access to /dev/input/event* so the gesture daemons
+# (texp-vk / texp-touch) can watch the touchscreen. Managed by
+# install.sh/uninstall.sh; identical to the stock uaccess tag Arch
+# applies to joysticks/sound devices.
+SUBSYSTEM=="input", KERNEL=="event*", TAG+="uaccess"
+'
+needs_rule=$(if [ -f "$INPUT_RULE" ] && cmp -s <(printf '%s' "$INPUT_RULE_CONTENT") "$INPUT_RULE"; then echo 0; else echo 1; fi)
+if [ "$needs_rule" = "1" ]; then
+  if [ -f "$INPUT_RULE" ] && ! grep -q 'TAG+="uaccess"' "$INPUT_RULE"; then
+    warn "$INPUT_RULE exists but does not look like ours — leaving it alone"
+  else
+    log "installing udev rule: $INPUT_RULE"
+    run sh -c 'printf "%s\n" "$1" | sudo tee "$2" >/dev/null' _ "$INPUT_RULE_CONTENT" "$INPUT_RULE"
+    log "reloading udev rules + retriggering input devices (grants read ACLs now)"
+    run sudo udevadm control --reload
+    run sudo udevadm trigger --subsystem-match=input
+  fi
+else
+  log "input-device udev rule already present: $INPUT_RULE"
+fi
+if id -nG "$USER" | grep -qw input; then
+  log "user $USER already in group 'input'"
+else
+  log "adding $USER to group 'input' (applies at next login/reboot)"
+  run sudo usermod -aG input "$USER"
+fi
+
 # ------------------------------------------------------- Hyprland hooks
 log "wiring Hyprland config ($HYPR_DIR)"
 if [ -f "$REPO_ROOT/config/hypr/tablet-experience.lua" ]; then
@@ -241,6 +295,14 @@ Next steps:
   2. Toggle mode: SUPER+SHIFT+U  (or omarchy-shell maxt.tablet-experience toggle)
   3. Rotation: SUPER+SHIFT+R; auto mode switches ON by default — keyboard
      attach -> laptop, detach -> tablet (disable with setAutoSwitch off).
+  4. Input-method quick switch + top-bar tap toggle: available in tablet mode
+     (bar buttons; tap the top edge to show/hide the top bar).
+
+  Input-device access: a udev rule (/etc/udev/rules.d/99-tablet-experience-input.rules)
+  tagged /dev/input/event* with uaccess and you were added to group 'input',
+  so the gesture daemons can read the touchscreen after reboots. The udev
+  rule's ACLs apply to the current session immediately (udevadm trigger ran
+  above); the group membership applies at next login.
 
   Hardware overrides (export before login, e.g. ~/.config/environment.d/):
     OMARCHY_ROTATE_DISPLAY   display to rotate (default: first Hyprland monitor)

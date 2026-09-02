@@ -238,17 +238,35 @@ def find_touch_device():
     import evdev
     from evdev import ecodes
     matches = []
+    skipped = 0
+    nodes = 0
     for path in sorted(p for p in os.listdir("/dev/input")
                        if p.startswith("event")):
-        dev = evdev.InputDevice(f"/dev/input/{path}")
-        name = (dev.name or "").lower()
-        caps = dev.capabilities().get(ecodes.EV_ABS, ())
-        codes = [s[0] if isinstance(s, tuple) else s for s in caps]
-        if ecodes.ABS_MT_POSITION_Y in codes and all(k in name for k in TOUCH_NAME_KEYS):
-            matches.append((path, name, dev))
+        nodes += 1
+        # Skip devices that cannot be opened instead of aborting the scan:
+        # at login the desktop user may not yet have read access to
+        # /dev/input/* (input group / logind uaccess ACLs are granted after
+        # session start), and one unrelated unreadable node must not kill
+        # gesture handling. Re-checked with a startup retry in daemon().
+        try:
+            dev = evdev.InputDevice(f"/dev/input/{path}")
+        except PermissionError:
+            skipped += 1
+            continue
+        except OSError:
+            continue
+        try:
+            name = (dev.name or "").lower()
+            caps = dev.capabilities().get(ecodes.EV_ABS, ())
+            codes = [s[0] if isinstance(s, tuple) else s for s in caps]
+            if ecodes.ABS_MT_POSITION_Y in codes and all(k in name for k in TOUCH_NAME_KEYS):
+                matches.append(path)
+        finally:
+            dev.close()
+    dlog(f"texp-touch: scanned /dev/input ({nodes} nodes, unreadable: {skipped})")
     if not matches:
-        return None
-    return matches[-1]
+        return None, skipped
+    return matches[-1], skipped
 
 
 # ---------------------------------------------------------------------------
@@ -326,11 +344,39 @@ def daemon():
     import evdev
     from evdev import ecodes
 
-    found = find_touch_device()
-    if found is None:
-        print("texp-touch: no touch device found", file=sys.stderr)
+    # Boot/autostart race: /dev/input/* may be unreadable at login (logind
+    # uaccess ACLs/udev settle, or the project's install.sh input grant has
+    # not run yet) — the scan then reports "no device" while the hardware is
+    # actually there. Retry while that is the case; only give up when no
+    # event node exists at all (touchscreen gone).
+    found = None
+    unreadable = 0
+    last_log = 0.0
+    while found is None:
+        found, unreadable = find_touch_device()
+        if found is None:
+            if unreadable == 0:
+                print("texp-touch: no /dev/input nodes at all — touchscreen "
+                      "absent; exiting", file=sys.stderr)
+                return 2
+            now = time.monotonic()
+            if now - last_log >= 30.0:
+                last_log = now
+                print(f"texp-touch: touch device not readable ({unreadable} "
+                      f"nodes permission-denied) — retrying; run "
+                      f"install.sh (sudo) to grant input access",
+                      file=sys.stderr)
+            time.sleep(3.0)
+
+    try:
+        dev = evdev.InputDevice(found)
+    except PermissionError:
+        print(f"texp-touch: cannot open {found} (permission denied — is the "
+              f"user in the 'input' group / do the devices carry logind "
+              f"uaccess ACLs?)", file=sys.stderr)
         return 2
-    path, name, dev = found
+    path = found
+    name = dev.name or path
     dlog(f"texp-touch: watching {path} ({name})")
 
     # ABS ranges for raw -> normalized mapping

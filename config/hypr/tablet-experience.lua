@@ -6,10 +6,15 @@
 --          touch/pen mapping follows automatically (input:touchdevice output
 --          Auto). NOTE: Super+Ctrl+0..3 previously used here clashed with
 --          omarchy's Bar-panel keybinds (keycode-bound); removed.
+-- v1.1: keep the tablet top-bar toggle strip (maxt-tablet-bar-strip) above
+--       the omarchy top bar so its shown-state tap reaches it.
 hl.config({
   gestures = {
     workspace_swipe_touch = true,
     workspace_swipe_touch_invert = false,
+  },
+  layerrule = {
+    "zindex 3, maxt-tablet-bar-strip",
   },
 })
 
