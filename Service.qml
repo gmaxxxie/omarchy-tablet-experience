@@ -591,9 +591,9 @@ Item {
   // Voice input button (v1.5): a bottom-anchored hold-to-talk overlay that
   // the bar's mic icon opens/closes in tablet mode. Press & hold the round
   // mic to record (`voxtype record start`), release to transcribe and type
-  // at the cursor (`voxtype record stop`). Anchored bottom-edge only (no
-  // left/right) -> the surface floats bottom-center and the rest of the
-  // screen stays touchable.
+  // at the cursor (`voxtype record stop`). Anchored bottom-right (no left /
+  // top) so it floats near the corner and the rest of the screen stays
+  // touchable.
   Variants {
     model: Quickshell.screens
     delegate: Component {
@@ -608,8 +608,8 @@ Item {
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
         exclusionMode: ExclusionMode.Ignore
 
-        anchors { bottom: true }
-        margins { bottom: 28 }
+        anchors { bottom: true; right: true }
+        margins { bottom: 28; right: 28 }
         implicitWidth: 220
         implicitHeight: 200
 
