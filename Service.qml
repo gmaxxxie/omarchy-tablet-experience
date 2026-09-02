@@ -662,10 +662,10 @@ Item {
           Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: {
-              if (!root.voxtypeUp) return "voxtype 未运行"
-              if (root.transcribing) return "识别中…"
-              if (root.holding || root.recording) return "松开以结束"
-              return "按住说话"
+              if (!root.voxtypeUp) return "Voxtype not running"
+              if (root.transcribing) return "Transcribing…"
+              if (root.holding || root.recording) return "Release to finish"
+              return "Hold to talk"
             }
             color: Color.foreground
             font.family: Style.font.family
@@ -722,8 +722,9 @@ Item {
             }
           }
 
-          // Action row (v1.10): 删除 (BackSpace) · 清空 (select-all+delete) ·
-          // ⏎ Enter (submit) — fix or send the just-dictated text.
+          // Action row (v1.10, English v1.10.1): Delete · Clear · Enter —
+          // fix or send the just-dictated text. Equal width, even spacing,
+          // one consistent look per button.
           Row {
             id: actionRow
             anchors.horizontalCenter: parent.horizontalCenter
@@ -739,7 +740,7 @@ Item {
               border.color: Util.alpha(Color.foreground, 0.3)
               Text {
                 anchors.centerIn: parent
-                text: "删除"
+                text: "Delete"
                 color: Color.foreground
                 font.family: Style.font.family
                 font.pixelSize: Style.font.body
@@ -756,7 +757,7 @@ Item {
               border.color: Util.alpha(Color.foreground, 0.3)
               Text {
                 anchors.centerIn: parent
-                text: "清空"
+                text: "Clear"
                 color: Color.foreground
                 font.family: Style.font.family
                 font.pixelSize: Style.font.body
@@ -771,23 +772,13 @@ Item {
               color: Util.alpha(Color.accent, 0.12)
               border.width: 1
               border.color: Util.alpha(Color.foreground, 0.3)
-              Row {
+              Text {
                 anchors.centerIn: parent
-                spacing: 5
-                Text {
-                  text: "\u23CE"        // ⏎ (verified in the bar font)
-                  color: Color.foreground
-                  font.family: Style.font.family
-                  font.pixelSize: Style.font.body
-                  opacity: 0.7
-                }
-                Text {
-                  text: "Enter"
-                  color: Color.foreground
-                  font.family: Style.font.family
-                  font.pixelSize: Style.font.body
-                  font.bold: true
-                }
+                text: "Enter"
+                color: Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+                font.bold: true
               }
               TapHandler { onTapped: root.sendEnter() }
             }
