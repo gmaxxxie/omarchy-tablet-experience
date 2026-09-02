@@ -7,6 +7,10 @@ Subcommands:
            bottom strip and moving upward shows squeekboard; a downward drag
            in the keyboard area (while visible) dismisses it. Left/right edge
            swipes are untouched (Hyprland workspace swipe owns those).
+           NOTE (v1.2.1): the daemon is NOT autostarted by default — the
+           swipe gesture was disabled on request; `texp-vk toggle` (SUPER+U,
+           bar button, 3-finger tap) needs no daemon. Re-enable by adding
+           `o.launch_on_start("texp-vk daemon")` to autostart.lua.
   toggle   Show/hide squeekboard now (used by Super+U). squeekboard is
            started on demand if not running.
   debug    (hidden) log every touch decision to stderr for diagnostics.

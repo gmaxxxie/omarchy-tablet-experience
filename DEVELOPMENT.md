@@ -205,6 +205,16 @@ relogin/restart so WirePlumber picks the UVC device up.**
 
 ## Next actions
 
+**Done this round (2026-09-02, v1.2.1): bottom-edge up-swipe disabled.**
+
+User request: "虚拟键盘用手指在屏幕从下往上展示的先取消吧" — the texp-vk
+daemon (bottom-edge up-swipe → show VK, down-drag → dismiss) is no longer
+autostarted: removed from the install.sh autostart wiring and from the live
+`autostart.lua`, the running daemon was killed, and --verify now ASSERTS the
+hook is absent. The virtual keyboard itself is untouched: `SUPER+U`, the
+tablet bar button, and the 3-finger tap (`texp-vk toggle`) all keep working,
+and re-enabling the swipe is one line in autostart.lua (documented).
+
 **Done this round (2026-09-02, v1.2.0): portrait/tablet bar declutter.**
 
 User: "竖屏顶部栏图标过多会遮盖" then "或者简化, laptop 就是默认多图标, tablet 模式就是简化的模式" — the bar layout is now MODE-driven:

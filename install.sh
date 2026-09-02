@@ -84,12 +84,12 @@ if [ "$VERIFY" -eq 1 ]; then
   [ -f "$HYPR_DIR/tablet-experience.lua" ] \
     && ok "$HYPR_DIR/tablet-experience.lua present" \
     || bad "hypr config missing — re-run install.sh"
-  grep -qF 'o.launch_on_start("texp-vk daemon")' "$HYPR_DIR/autostart.lua" 2>/dev/null \
-    && ok "autostart: texp-vk daemon hook" \
-    || bad "autostart: texp-vk hook missing — re-run install.sh"
   grep -qF 'o.launch_on_start("texp-touch daemon")' "$HYPR_DIR/autostart.lua" 2>/dev/null \
     && ok "autostart: texp-touch daemon hook" \
     || bad "autostart: texp-touch hook missing — re-run install.sh"
+  grep -qF 'o.launch_on_start("texp-vk daemon")' "$HYPR_DIR/autostart.lua" 2>/dev/null \
+    && bad "autostart: texp-vk daemon hook present (bottom-swipe gesture is off by default) — remove the line or re-run install.sh" \
+    || ok "autostart: no texp-vk daemon hook (bottom-swipe gesture disabled)"
 
   # plugin enabled by omarchy
   if omarchy plugin list --json 2>/dev/null | grep -q '"maxt.tablet-experience"'; then
@@ -137,8 +137,6 @@ if [ "$VERIFY" -eq 1 ]; then
   # daemons running
   pgrep -f "$BIN_DIR/texp-touch daemon" >/dev/null 2>&1 \
     && ok "texp-touch daemon running" || warn "texp-touch daemon not running (starts at next login)"
-  pgrep -f "$BIN_DIR/texp-vk daemon" >/dev/null 2>&1 \
-    && ok "texp-vk daemon running" || warn "texp-vk daemon not running (starts at next login)"
 
   # input-device access (gesture daemons need /dev/input/event*)
   if [ -f /etc/udev/rules.d/99-tablet-experience-input.rules ] \
@@ -280,7 +278,10 @@ append_if_missing "$HYPR_DIR/hyprland.lua" 'require("hypr.tablet-experience")'
 # --------------------------------------------------------- autostart hooks
 if [ -f "$HYPR_DIR/autostart.lua" ]; then
   log "wiring autostart hooks"
-  append_if_missing "$HYPR_DIR/autostart.lua" 'o.launch_on_start("texp-vk daemon")'
+  # v1.2.1: the texp-vk bottom-swipe GESTURE is disabled by default (user
+  # request) — the on-screen keyboard still toggles via SUPER+U / the bar
+  # button / the 3-finger tap, which use `texp-vk toggle` and need no daemon.
+  # Re-enable the swipe with:  o.launch_on_start("texp-vk daemon")
   append_if_missing "$HYPR_DIR/autostart.lua" 'o.launch_on_start("texp-touch daemon")'
 else
   warn "$HYPR_DIR/autostart.lua not found — daemons will not autostart (start them manually)"

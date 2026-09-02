@@ -20,11 +20,13 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   itself). **Selecting Laptop mode always returns the display to the default
   0° landscape** — even mid-rotation, the reset is queued until the current
   rotation finishes.
-- **Virtual keyboard** — squeekboard via `SUPER+U`, a bottom-edge up-swipe, or the **tablet-mode-only** keyboard icon in the top bar (live show/hide state).
-  (the `texp-vk` gesture daemon). The gesture daemons now retry until the
-  touchscreen is readable instead of dying at login, and `install.sh` grants
-  the desktop user evdev access (udev `uaccess` rule + `input` group), so
-  the up-swipe keeps working after a reboot.
+- **Virtual keyboard** — squeekboard via `SUPER+U`, the **tablet bar button**
+  (live show/hide state), or a 3-finger tap (`texp-touch`). The bottom-edge
+  up-swipe gesture (texp-vk daemon) is **disabled by default since v1.2.1**;
+  re-enable by adding `o.launch_on_start("texp-vk daemon")` to
+  `~/.config/hypr/autostart.lua`. `install.sh` grants the desktop user evdev
+  access (udev `uaccess` rule + `input` group) so the gesture daemons can
+  read the touchscreen after reboots.
 - **Tablet simplified bar (v1.2)** — LAPTOP mode keeps the default full bar;
   TABLET mode pares it to essentials (menu · workspaces · clock · tray ·
   network · audio · power · this widget) and the rest (weather, indicators,
@@ -110,7 +112,7 @@ verify with `install.sh --verify`.
 | Switch input method (EN ⇄ 中) | **bar button, tablet mode** (shows current IM) |
 | Virtual keyboard | `SUPER+U` · bottom-edge up-swipe · **tablet bar button** |
 | Hidden bar icons (tablet) | **⋮ button** → popup list; tap one to bring it back |
-| Virtual keyboard | `SUPER+U` · bottom-edge up-swipe · **keyboard icon in the bar, tablet mode only** (click to show/hide, highlighted while visible) |
+| Virtual keyboard | `SUPER+U` · **bar button (tablet)** · 3-finger tap (bottom-edge up-swipe gesture disabled by default since v1.2.1) |
 | Show/hide top bar (tablet mode) | tap the top edge / bar blank area (16 px strip when hidden, 5 px when shown) |
 | Close panels / touched window | 2-finger tap |
 | Previous / next workspace | 2-finger swipe left / right |
@@ -195,7 +197,7 @@ omarchy-tablet-experience/            ← repo root = plugin root
 ├── BarWidget.qml                  ← always-mounted bar button + popup
 ├── install.sh / uninstall.sh      ← one-command setup/teardown (reversible)
 ├── scripts/                       ← helper daemons (auto-installed to ~/.local/bin)
-│   ├── texp-vk                    ← VK toggle + bottom-edge swipe daemon
+│   ├── texp-vk                    ← VK toggle (SUPER+U / bar button; swipe daemon opt-in)
 │   ├── texp-touch                 ← multi-touch gestures + last-touch tracking
 │   ├── texp-close                 ← close panels/overlays/touched window
 │   ├── texp-window                ← tablet actions (close/move/layout)
