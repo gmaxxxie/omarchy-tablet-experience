@@ -116,6 +116,15 @@ if [ "$VERIFY" -eq 1 ]; then
     else
       ok "plugin QML uses texp-* helpers"
     fi
+    # v1.16: BoundedProcess.qml (deadline + byte-cap probe wrapper) must ship
+    # with the plugin — a stale plugin dir without it would serve unbounded
+    # Process+StdioCollector probes again.
+    if [ -f "$PLUGIN_DIR/BoundedProcess.qml" ] \
+        && cmp -s "$REPO_ROOT/BoundedProcess.qml" "$PLUGIN_DIR/BoundedProcess.qml"; then
+      ok "plugin QML BoundedProcess.qml present (matches repo)"
+    else
+      bad "plugin QML BoundedProcess.qml missing/different — copy it from the repo"
+    fi
     DUPS="$(grep -rl 'maxt.tablet-experience' "$PLUGINS_DIR"/*/manifest.json 2>/dev/null \
             | grep -v "^$PLUGIN_DIR/manifest.json$" || true)"
     if [ -n "$DUPS" ]; then
