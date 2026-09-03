@@ -61,6 +61,30 @@ STATE_FILE = os.path.join(STATE_DIR, "visible")
 VK_HEIGHT_LANDSCAPE = os.environ.get("OMARCHY_VK_HEIGHT_LANDSCAPE", "350")
 VK_HEIGHT_PORTRAIT = os.environ.get("OMARCHY_VK_HEIGHT_PORTRAIT", "350")
 
+# wvkbd theming (v1.14): match the ACTIVE Omarchy theme. Colors are resolved
+# at spawn time from `omarchy theme color --all` (one call), so a theme
+# switch applies on the next keyboard open. Disable with OMARCHY_VK_THEME=off.
+VK_THEME = os.environ.get("OMARCHY_VK_THEME", "auto") != "off"
+
+# wvkbd flag -> (Omarchy semantic color key, fallback hex). Fallbacks are the
+# Gruvbox dark palette (the Omarchy default) used when the lookup fails, so
+# the keyboard still looks right on a stock install.
+VK_THEME_MAP = (
+    ("--bg",            "background",         "#282828"),
+    ("--fg",            "lighter_background", "#3c3836"),
+    ("--fg-sp",         "selection",          "#504945"),
+    ("--press",         "accent",             "#7daea3"),
+    ("--press-sp",      "accent",             "#7daea3"),
+    ("--swipe",         "accent",             "#7daea3"),
+    ("--swipe-sp",      "accent",             "#7daea3"),
+    ("--text",          "foreground",         "#d4be98"),
+    ("--text-sp",       "light_foreground",   "#bdae93"),
+    ("--text-press",    "darker_background",  "#161616"),
+    ("--text-press-sp", "darker_background",  "#161616"),
+    ("--text-swipe",    "darker_background",  "#161616"),
+    ("--text-swipe-sp", "darker_background",  "#161616"),
+)
+
 DBUS_SVC = "sm.puri.OSK0"
 DBUS_PATH = "/sm/puri/OSK0"
 DBUS_IFACE = "sm.puri.OSK0"
@@ -102,13 +126,37 @@ def write_state(visible):
         f.write("visible\n" if visible else "hidden\n")
 
 
+def vk_theme_args():
+    """wvkbd color args matching the active Omarchy theme; [] when theming
+    is disabled or the theme lookup fails (wvkbd defaults take over)."""
+    if not VK_THEME:
+        return []
+    colors = {}
+    try:
+        out = subprocess.run(["omarchy", "theme", "color", "--all"],
+                             capture_output=True, text=True, timeout=5).stdout
+        for line in out.splitlines():
+            key, _, val = line.partition("\t")
+            if re.fullmatch(r"#[0-9a-fA-F]{6}", val.strip()):
+                colors[key] = val.strip()
+    except (subprocess.SubprocessError, OSError):
+        pass
+    args = []
+    for flag, key, fallback in VK_THEME_MAP:
+        # wvkbd-deskintl does NOT accept a '#' prefix on color args (a '#'
+        # hex is silently ignored and the default palette is used) — strip it.
+        args += [flag, colors.get(key, fallback).lstrip("#")]
+    return args
+
+
 def start_vk():
     name = vk_backend()
     if vk_running():
         return name
     if name == VK_WVKBD:
         subprocess.run(["setsid", VK_WVKBD, "--hidden",
-                        "-H", VK_HEIGHT_PORTRAIT, "-L", VK_HEIGHT_LANDSCAPE],
+                        "-H", VK_HEIGHT_PORTRAIT, "-L", VK_HEIGHT_LANDSCAPE]
+                       + vk_theme_args(),
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                        start_new_session=True)
     else:
