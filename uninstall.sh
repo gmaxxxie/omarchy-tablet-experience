@@ -68,6 +68,20 @@ for src in "$REPO_ROOT"/scripts/texp-*; do
   remove_deprecated_file "$BIN_DIR/$(basename "$src")" "$src" "helper script"
 done
 
+# ------------------------------------------------------- voxtype post-process
+# Unwire texp-vtext from voxtype (restores the default = no post-processing)
+# and restart the daemon so the removal takes effect. The replacement table is
+# user data (iterated on from real dictation) — left in place on purpose.
+if command -v voxtype >/dev/null 2>&1; then
+  cur="$(voxtype config get output.post_process.command 2>/dev/null | tr -d '"')"
+  if [ -n "$cur" ] && [ "$cur" != "null" ]; then
+    run voxtype config unset output.post_process.command
+    log "voxtype: unset output.post_process.command (was $cur)"
+    run systemctl --user restart voxtype
+    log "restarted voxtype.service (post-processing disabled)"
+  fi
+fi
+
 # ------------------------------------------------------- input-device access
 # Remove the udev rule install.sh wrote (only when it still byte-matches).
 # The user's `input` group membership is NOT removed: it may predate the

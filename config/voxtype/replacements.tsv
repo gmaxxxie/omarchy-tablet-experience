@@ -1,0 +1,33 @@
+# texp-vtext replacement table — ~/.config/voxtype/replacements.tsv
+#
+# Turns ASR phonetics of technical English terms (spoken in mostly-Chinese
+# dictation) back into the correct spelling before voxtype types the text.
+#
+# Format:  找什么 <TAB> 替换成什么        ('#' comments / blank lines ignored)
+# Single-ASCII-token sources match case-insensitively at word boundaries
+# (so 'git' never corrupts 'digit'); CJK / phrases are plain substring replace.
+#
+# Iterate by dictating and checking:  echo "把代码推到吉特哈布上" | texp-vtext
+# then add whatever SenseVoice actually emits on this machine. First match wins.
+
+# --- git / GitHub -----------------------------------------------------
+吉特哈布	github
+姬特哈布	github
+吉特	git
+泡许	push
+普尔瑞奎斯特	pull request
+普尔	pull
+科米特	commit
+考米特	commit
+墨知	merge
+
+# --- dev / infra terms ------------------------------------------------
+阿皮	api
+思扣	SQL
+斯扣	SQL
+多克	docker
+达克	docker
+卡梅拉	camera
+凯博的	keyboard
+泡特	port
+塞特	server

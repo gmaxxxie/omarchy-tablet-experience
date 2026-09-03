@@ -186,6 +186,28 @@ if [ "$VERIFY" -eq 1 ]; then
     warn "wvkbd-deskintl missing — run $BIN_DIR/texp-install-wvkbd (squeekboard fallback stays)"
   fi
 
+  # voxtype post-processing (texp-vtext — tech-term replacement, v1.13)
+  if command -v voxtype >/dev/null 2>&1; then
+    pp="$(voxtype config get output.post_process.command 2>/dev/null | tr -d '"')"
+    if [ "$pp" = "$BIN_DIR/texp-vtext" ]; then
+      ok "voxtype post_process.command -> texp-vtext (tech-term replacement)"
+    else
+      bad "voxtype post_process.command not wired to texp-vtext (got: ${pp:-unset}) — re-run install.sh"
+    fi
+    if [ -f "$HOME/.config/voxtype/replacements.tsv" ]; then
+      ok "voxtype replacement table present"
+    else
+      bad "voxtype replacement table missing — re-run install.sh"
+    fi
+    if systemctl --user is-active voxtype.service >/dev/null 2>&1; then
+      ok "voxtype service running (post-processing active)"
+    else
+      bad "voxtype service not running — systemctl --user start voxtype"
+    fi
+  else
+    warn "voxtype not installed — post-process hook skipped"
+  fi
+
   if [ "$FAIL" -eq 1 ]; then
     echo; echo "FAILURES FOUND — re-run: $0   (or --no-packages --dry-run to preview)"; exit 1
   fi
@@ -391,6 +413,37 @@ fi
 # wvkbd speaks SIGUSR1/2/RTMIN; if it is already running, restart so the new
 # binary / height applies.
 run pkill -x wvkbd-deskintl 2>/dev/null || true
+
+# -------------------------------------------- voxtype post-processing (v1.13)
+# Dictated text (mostly Chinese) often has English tech terms written as
+# Chinese phonetics (吉特哈布 for github, 泡许 for push, ...). Hook a
+# replacement-table filter into voxtype's output.post_process.command so the
+# text is cleaned BEFORE typing. The table lives at
+# ~/.config/voxtype/replacements.tsv and is NEVER clobbered here — the user
+# iterates on it from real dictation (`echo ... | texp-vtext`).
+if command -v voxtype >/dev/null 2>&1; then
+  log "wiring voxtype post-processing (texp-vtext tech-term replacement)"
+  VT_CONF="$HOME/.config/voxtype"
+  run mkdir -p "$VT_CONF"
+  if [ ! -f "$VT_CONF/replacements.tsv" ]; then
+    if [ -f "$REPO_ROOT/config/voxtype/replacements.tsv" ]; then
+      run install -m 0644 "$REPO_ROOT/config/voxtype/replacements.tsv" "$VT_CONF/replacements.tsv"
+      log "install: $VT_CONF/replacements.tsv"
+    else
+      warn "config/voxtype/replacements.tsv missing from repo — creating empty table"
+      run sh -c ': > "$1"' _ "$VT_CONF/replacements.tsv"
+    fi
+  else
+    log "replacement table already present — leaving user edits: $VT_CONF/replacements.tsv"
+  fi
+  run voxtype config set output.post_process.command "$BIN_DIR/texp-vtext"
+  log "voxtype output.post_process.command -> $BIN_DIR/texp-vtext"
+  # post_process needs a daemon restart; it is a user service, restart in place.
+  run systemctl --user restart voxtype
+  log "restarted voxtype.service (post-processing active)"
+else
+  warn "voxtype not installed — skipping post-process wiring (install voxtype first)"
+fi
 
 # --------------------------------------------------------- autostart hooks
 if [ -f "$HYPR_DIR/autostart.lua" ]; then

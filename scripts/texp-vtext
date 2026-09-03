@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+"""
+texp-vtext — voxtype post-processing: technical-term replacement table.
+
+Hooked into voxtype's `output.post_process.command` so dictated text is
+cleaned up BEFORE it is typed. Use case: dictating mostly in Chinese while
+mixing in technical English terms (github, push, commit, ...) that the ASR
+tends to write as Chinese phonetics (吉特哈布, 泡许, 科米特, ...).
+
+Table file:  ~/.config/voxtype/replacements.tsv
+One rule per line, TAB-separated:
+
+      找什么 <TAB> 替换成什么
+
+Also accepts "找什么 => 替换成什么".  Lines starting with '#' and blank
+lines are ignored. First match wins per rule (rules run top to bottom).
+
+Matching rules:
+  * a source that is a single ASCII token is replaced case-insensitively at
+    word boundaries (so 'git' never corrupts 'digit', and 'Git' still hits);
+  * anything else (CJK text, multi-word phrases) is a plain substring replace.
+
+Usage:
+  echo "把代码推到吉特哈布上" | texp-vtext          # -> 把代码推到github上
+  texp-vtext test < input.txt                       # show input/output/matches
+  texp-vtext --table <file> < input.txt             # use a different table
+"""
+import os
+import re
+import sys
+
+DEFAULT_TABLE = os.path.expanduser("~/.config/voxtype/replacements.tsv")
+
+_ASCII_TOKEN = re.compile(r"[A-Za-z0-9_.+/-]+")
+
+
+def load_table(path):
+    pairs = []
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.rstrip("\n")
+                if not line.strip() or line.lstrip().startswith("#"):
+                    continue
+                src = dst = None
+                if "\t" in line:
+                    src, dst = line.split("\t", 1)
+                else:
+                    m = re.match(r"\s*(.*?)\s*=>\s*(.*?)\s*$", line)
+                    if m:
+                        src, dst = m.group(1), m.group(2)
+                if not src:
+                    continue
+                src = src.strip()
+                dst = (dst or "").strip()
+                if src:
+                    pairs.append((src, dst))
+    return pairs
+
+
+def apply(text, pairs, matched=None):
+    for src, dst in pairs:
+        if _ASCII_TOKEN.fullmatch(src):
+            new = re.sub(
+                rf"(?<![A-Za-z0-9_]){re.escape(src)}(?![A-Za-z0-9_])",
+                dst,
+                text,
+                flags=re.IGNORECASE,
+            )
+        else:
+            new = text.replace(src, dst)
+        if new != text:
+            if matched is not None:
+                matched.append((src, dst))
+            text = new
+    return text
+
+
+def main():
+    args = sys.argv[1:]
+    table = DEFAULT_TABLE
+    if len(args) >= 2 and args[0] == "--table":
+        table = args[1]
+        args = args[2:]
+    test_mode = bool(args and args[0] == "test")
+    text = sys.stdin.read()
+    pairs = load_table(table)
+    if test_mode:
+        print("=== texp-vtext test ===")
+        print(f"table : {table} ({len(pairs)} rules)")
+        print("input :", repr(text))
+        matched = []
+        out = apply(text, pairs, matched)
+        print("output:", repr(out))
+        print("match :", matched if matched else "(none)")
+        return 0
+    sys.stdout.write(apply(text, pairs))
+
+
+if __name__ == "__main__":
+    main()
