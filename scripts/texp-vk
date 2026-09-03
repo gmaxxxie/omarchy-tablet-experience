@@ -31,6 +31,8 @@ consumed, so Hyprland still receives every touch.
 
 import os
 import re
+import select
+import shutil
 import subprocess
 import sys
 import time
@@ -95,21 +97,64 @@ def dlog(msg):
         print(msg, file=sys.stderr, flush=True)
 
 
+def run_cap(cmd, timeout=5.0, max_bytes=131072, text=False):
+    """Run cmd capturing at most max_bytes of stdout; watchdog-kill the whole
+    process group if it does not exit in time or emits too much (security
+    review finding 3). Returns str (text=True) or bytes, truncated at cap."""
+    import signal
+    try:
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+    except (FileNotFoundError, PermissionError):
+        return "" if text else b""
+    buf = bytearray()
+    try:
+        deadline = time.monotonic() + timeout
+        while True:
+            rem = deadline - time.monotonic()
+            if rem <= 0:
+                break
+            r, _, _ = select.select([p.stdout], [], [], max(0.0, rem))
+            if not r:
+                break
+            chunk = os.read(p.stdout.fileno(), 65536)
+            if not chunk:
+                break
+            buf.extend(chunk)
+            if len(buf) >= max_bytes:
+                break
+    finally:
+        # watchdog: terminate the full process group so no child lingers
+        try:
+            os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+        try:
+            p.wait(timeout=1)
+        except subprocess.SubprocessError:
+            try:
+                p.kill()
+            except Exception:
+                pass
+    out = bytes(buf[:max_bytes])
+    return out.decode("utf-8", "replace") if text else out
+
+
 # ---------------------------------------------------------------------------
 # Keyboard control (backend-agnostic; wvkbd via signals, squeekboard via D-Bus)
 # ---------------------------------------------------------------------------
 def vk_backend():
     """Return the binary name to control: wvkbd-deskintl if present, else
     squeekboard."""
-    if subprocess.run(["sh", "-c", "command -v " + VK_WVKBD],
-                      capture_output=True).returncode == 0:
-        return VK_WVKBD
-    return VK_SQUEEK
+    return VK_WVKBD if shutil.which(VK_WVKBD) else VK_SQUEEK
 
 
 def vk_running():
-    return bool(subprocess.run(["pgrep", "-x", vk_backend()],
-                               capture_output=True).stdout.strip())
+    try:
+        return bool(run_cap(["pgrep", "-x", vk_backend()], timeout=3,
+                            max_bytes=4096).strip())
+    except Exception:
+        return False
 
 
 def vk_visible():
@@ -133,13 +178,13 @@ def vk_theme_args():
         return []
     colors = {}
     try:
-        out = subprocess.run(["omarchy", "theme", "color", "--all"],
-                             capture_output=True, text=True, timeout=5).stdout
+        out = run_cap(["omarchy", "theme", "color", "--all"], timeout=5,
+                      max_bytes=65536, text=True)
         for line in out.splitlines():
             key, _, val = line.partition("\t")
             if re.fullmatch(r"#[0-9a-fA-F]{6}", val.strip()):
                 colors[key] = val.strip()
-    except (subprocess.SubprocessError, OSError):
+    except Exception:
         pass
     args = []
     for flag, key, fallback in VK_THEME_MAP:
@@ -174,12 +219,12 @@ def set_visible(visible):
     if name == VK_WVKBD:
         # wvkbd: SIGUSR2 = show, SIGUSR1 = hide
         subprocess.run(["pkill", "-USR2" if visible else "-USR1", "-x", VK_WVKBD],
-                       capture_output=True)
+                       capture_output=True, timeout=3)
     else:
         subprocess.run(["busctl", "--user", "call", DBUS_SVC, DBUS_PATH,
                         DBUS_IFACE, "SetVisible", "b",
                         "true" if visible else "false"],
-                       capture_output=True)
+                       capture_output=True, timeout=3)
     write_state(visible)
 
 
@@ -276,26 +321,48 @@ def daemon():
     dlog(f"texp-vk: watching {dev.path} ({dev.name}); y_max={y_max}, "
          f"up needs start>={bottom_y}, down zone>={down_zone}")
 
-    # Track per touch-id: [start_y, fired_this_touch].
+    # Track per slot -> touch-id -> [start_y, fired_this_touch].
     # Note: single-touch streams are slot-less (bare TRACKING_ID/X/Y);
     # multi-touch streams DO carry ABS_MT_SLOT (see texp-touch + AUDIT
-    # Phase 11). This daemon only drives single-finger gestures, so
-    # touch-id attribution is sufficient here.
-    touches = {}
+    # Phase 11). This daemon only drives single-finger gestures.
+    # Linux reports a release as TRACKING_ID=-1 on the ACTIVE slot; we remove
+    # the tracking ID that was bound to that slot, never a literal -1 key
+    # (security review finding 1: the old code did touches.pop(-1), leaking
+    # every real tracking ID -> unbounded memory growth while the daemon
+    # runs). A malformed stream is capped and reset.
+    MAX_TRACKED_TOUCHES = 16
+    touches = {}    # tid -> [start_y, fired]
+    slot_tid = {}   # slot -> current tracking id
+    active_slot = 0
     last_action = 0.0
+
+    def prune_touches():
+        if len(touches) > MAX_TRACKED_TOUCHES or len(slot_tid) > MAX_TRACKED_TOUCHES:
+            touches.clear()
+            slot_tid.clear()
 
     for event in dev.read_loop():
         if event.type != ecodes.EV_ABS:
             continue
-        if event.code == ecodes.ABS_MT_TRACKING_ID:
+        if event.code == ecodes.ABS_MT_SLOT:
+            active_slot = event.value
+        elif event.code == ecodes.ABS_MT_TRACKING_ID:
             tid = event.value
             if tid >= 0:
                 touches[tid] = [None, False]
+                slot_tid[active_slot] = tid
             else:
-                touches.pop(tid, None)
+                # release: remove the tracking id that was on this slot
+                prev = slot_tid.pop(active_slot, None)
+                if prev is not None:
+                    touches.pop(prev, None)
+            prune_touches()
         elif event.code == ecodes.ABS_MT_POSITION_Y:
-            # without SLOT events, attribute Y to the newest live touch id
-            tid = max(touches.keys(), default=None)
+            # attribute to the tid on the active slot; slot-less streams keep
+            # it on slot 0; fall back to the newest live tid when unknown
+            tid = slot_tid.get(active_slot)
+            if tid is None:
+                tid = max(touches.keys(), default=None)
             if tid is None:
                 continue
             state = touches[tid]

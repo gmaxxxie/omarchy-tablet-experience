@@ -328,70 +328,59 @@ Item {
 
   // ------------------------------------------------------------- plumbing
 
-  Process { id: osdProcess }
+  BoundedProcess { id: osdProcess }
 
-  Process {
+  BoundedProcess {
     id: rotateProcess
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        // NOTE: `persisted` must be addressed by id here (component scope), not
-        // as root.persisted — ids are not properties of their declaring object.
-        if (root.pendingRelative) {
-          root.pendingRelative = false
-          var m = /^([0-3])\s*$/.exec(String(text || "").trim())
-          if (m) persisted.tabletRotation = m[1]
-        }
-        // A laptop-mode reset that had to wait for this process can start now.
-        root.tryLaptopReset()
+    deadlineMs: 8000
+    onStreamFinished: {
+      // NOTE: `persisted` must be addressed by id here (component scope), not
+      // as root.persisted — ids are not properties of their declaring object.
+      if (root.pendingRelative) {
+        root.pendingRelative = false
+        var m = /^([0-3])\s*$/.exec(String(output || "").trim())
+        if (m) persisted.tabletRotation = m[1]
       }
+      // A laptop-mode reset that had to wait for this process can start now.
+      root.tryLaptopReset()
     }
   }
 
   // Reads the current monitor transform so "Fixed" can freeze the screen
   // where it currently is instead of snapping back to 0°.
-  Process {
+  BoundedProcess {
     id: monitorProbe
     command: ["hyprctl", "monitors", "-j"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        try {
-          var ms = JSON.parse(text || "[]")
-          if (Array.isArray(ms) && ms.length > 0)
-            root.setRotationPreset(String(ms[0].transform || "0"))
-        } catch (e) {}
-      }
+    onStreamFinished: {
+      try {
+        var ms = JSON.parse(output || "[]")
+        if (Array.isArray(ms) && ms.length > 0)
+          root.setRotationPreset(String(ms[0].transform || "0"))
+      } catch (e) {}
     }
   }
 
-  Process {
+  BoundedProcess {
     id: orientationProbe
     command: ["texp-orient", "--json"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var o = "unknown"
-        try {
-          var d = JSON.parse(text || "")
-          if (d && typeof d.label === "string") o = d.label
-        } catch (e) {}
-        if (o !== root.orientation) {
-          root.orientation = o
-          root.applyOrientation()
-        }
+    onStreamFinished: {
+      var o = "unknown"
+      try {
+        var d = JSON.parse(output || "")
+        if (d && typeof d.label === "string") o = d.label
+      } catch (e) {}
+      if (o !== root.orientation) {
+        root.orientation = o
+        root.applyOrientation()
       }
     }
   }
 
-  Process {
+  BoundedProcess {
     id: kbProbe
     command: ["texp-kbdetect"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        root.onKeyboardResult(String(text).trim() === "attached")
-      }
+    onStreamFinished: {
+      root.onKeyboardResult(String(output).trim() === "attached")
     }
   }
 
@@ -544,20 +533,17 @@ Item {
     if (!vxStateProbe.running) vxStateProbe.running = true
   }
 
-  Process { id: vxCmd }
-  Process { id: enterCmd }
-  Process { id: delCmd }
-  Process { id: clrCmd }
-  Process { id: arrowCmd }
-  Process { id: vkCmd }
+  BoundedProcess { id: vxCmd }
+  BoundedProcess { id: enterCmd }
+  BoundedProcess { id: delCmd }
+  BoundedProcess { id: clrCmd }
+  BoundedProcess { id: arrowCmd }
+  BoundedProcess { id: vkCmd }
 
-  Process {
+  BoundedProcess {
     id: vkProbe
     command: ["bash", "-c", "cat \"$HOME/.local/state/texp-vk/visible\" 2>/dev/null; echo; true"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.onVkState(String(text || "").trim())
-    }
+    onStreamFinished: root.onVkState(String(output || "").trim())
   }
 
   // ------------------------------------------------- tablet-mode bar toggle
@@ -574,16 +560,14 @@ Item {
     barCmd.running = true
   }
 
-  Process { id: barCmd }
+  BoundedProcess { id: barCmd }
 
   // Mirror the bar-off flag (same probe Bar.qml uses). Watching the parent
   // directory catches flag creation AND removal.
-  Process {
+  BoundedProcess {
     id: barHiddenProbe
     command: ["bash", "-c", "[[ -f $HOME/.local/state/omarchy/toggles/bar-off ]] && echo yes || echo no"]
-    stdout: SplitParser {
-      onRead: function(line) { root.barHidden = String(line).trim() === "yes" }
-    }
+    onStreamFinished: root.barHidden = /yes/.test(String(output || "").trim())
   }
 
   FileView {
@@ -596,13 +580,10 @@ Item {
   // Voxtype live state — same state file `voxtype status` reads, so the
   // hold-to-talk visuals agree with the F9 / SUPER+CTRL+X hotkeys as well.
   // The daemon removes the file on exit, so an empty read = daemon down.
-  Process {
+  BoundedProcess {
     id: vxStateProbe
     command: ["bash", "-c", "cat \"$XDG_RUNTIME_DIR/voxtype/state\" 2>/dev/null; echo; true"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.updateVoxtypeState(String(text || "").trim())
-    }
+    onStreamFinished: root.updateVoxtypeState(String(output || "").trim())
   }
 
   FileView {
@@ -1175,19 +1156,16 @@ Item {
 
   // Monitor transform watcher — required only for the laptop reset latch
   // (a restart can leave the display rotated; laptop must return to 0°).
-  Process {
+  BoundedProcess {
     id: transformProbe
     command: ["hyprctl", "monitors", "-j"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        try {
-          var ms = JSON.parse(text || "[]")
-          if (!Array.isArray(ms) || ms.length === 0) return
-          var t = Number(ms[0].transform || 0)
-          if (t !== root.liveTransform) root.liveTransform = t
-        } catch (e) {}
-      }
+    onStreamFinished: {
+      try {
+        var ms = JSON.parse(output || "[]")
+        if (!Array.isArray(ms) || ms.length === 0) return
+        var t = Number(ms[0].transform || 0)
+        if (t !== root.liveTransform) root.liveTransform = t
+      } catch (e) {}
     }
   }
 

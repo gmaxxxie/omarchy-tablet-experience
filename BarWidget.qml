@@ -98,7 +98,7 @@ Panel {
     pollTimer.restart()
   }
 
-  Process { id: actProc }
+  BoundedProcess { id: actProc }
 
   implicitWidth: row.implicitWidth
   implicitHeight: row.implicitHeight
@@ -466,21 +466,18 @@ Panel {
   }
 
   // -------- active-workspace poll (id + tiled layout)
-  Process {
+  BoundedProcess {
     id: wsProbe
     running: true
     command: ["hyprctl", "activeworkspace", "-j"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        try {
-          var d = JSON.parse(text || "{}")
-          if (d.id !== undefined && d.tiledLayout !== undefined) {
-            root.wsId = d.id
-            root.wsLayout = String(d.tiledLayout || "dwindle")
-          }
-        } catch (e) {}
-      }
+    onStreamFinished: {
+      try {
+        var d = JSON.parse(output || "{}")
+        if (d.id !== undefined && d.tiledLayout !== undefined) {
+          root.wsId = d.id
+          root.wsLayout = String(d.tiledLayout || "dwindle")
+        }
+      } catch (e) {}
     }
   }
 
@@ -496,19 +493,16 @@ Panel {
   }
 
   // -------- input method (fcitx5): toggle process + name poll
-  Process {
+  BoundedProcess {
     id: imCmd
   }
 
-  Process {
+  BoundedProcess {
     id: imProbe
     command: ["fcitx5-remote", "-n"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var n = String(text || "").trim()
-        if (n !== root.imName) root.imName = n
-      }
+    onStreamFinished: {
+      var n = String(output || "").trim()
+      if (n !== root.imName) root.imName = n
     }
   }
 
@@ -527,17 +521,14 @@ Panel {
   // Visibility is mirrored by texp-vk to ~/.local/state/texp-vk/visible
   // (wvkbd-deskintl primary, squeekboard fallback) — read that instead of
   // D-Bus so the icon agrees with whichever keyboard texp-vk controls.
-  Process {
+  BoundedProcess {
     id: vkCmd
   }
 
-  Process {
+  BoundedProcess {
     id: vkProbe
     command: ["bash", "-c", "cat \"$HOME/.local/state/texp-vk/visible\" 2>/dev/null; echo; true"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.vkVisible = /visible/.test(String(text || "").trim())
-    }
+    onStreamFinished: root.vkVisible = /visible/.test(String(output || "").trim())
   }
 
   Timer {

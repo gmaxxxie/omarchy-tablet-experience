@@ -111,10 +111,14 @@ if best:
 
 # State file line: "<lx> <ly> <address>"; address may be empty.
 read_state_point() {
+  # Only touch a real regular file — never a symlink or special file — and
+  # read a bounded amount (security review finding 4; the daemon writes this
+  # file atomically now).
   [ -f "$TOUCH_STATE" ] || return 1
+  [ -L "$TOUCH_STATE" ] && return 1
   local age=$(( $(date +%s) - $(stat -c %Y "$TOUCH_STATE" 2>/dev/null || echo 0) ))
   [ "$age" -le "$STATE_FRESH_S" ] || return 1
-  head -1 "$TOUCH_STATE"
+  head -c 256 "$TOUCH_STATE"
 }
 
 resolve() {
@@ -165,6 +169,27 @@ notify() {  # notify <glyph> <headline> [description]
   omarchy-notification-send -g "$1" "$2" ${3:-} >/dev/null 2>&1 || true
 }
 
+# ------------------------------------------------------------- validation
+# Strict input checks BEFORE a value is interpolated into a single-quoted
+# Hyprland Lua expression (security review finding 2). texp-window is a
+# public command; workspace ids and window addresses must match the exact
+# grammar, never raw caller input.
+
+is_ws() {  # $1 numeric workspace id, 1..10 (the bar popup range)
+  case "$1" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$1" -ge 1 ] 2>/dev/null && [ "$1" -le 10 ] 2>/dev/null
+}
+
+is_addr() {  # $1 Hyprland window address, e.g. 0x55d2dd0f29d0
+  case "$1" in
+    0x[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]*)
+      [ "${#1}" -le 18 ] ;;
+    *) return 1 ;;
+  esac
+}
+
 # ---------------------------------------------------------------- dispatch
 
 lua_call() {  # lua_call "<lua expression>"
@@ -175,7 +200,10 @@ lua_call() {  # lua_call "<lua expression>"
   hyprctl eval "$1" >/dev/null 2>&1 || true
 }
 
-win() { printf "{ window = 'address:%s'" "$1"; }
+win() {
+  is_addr "$1" || { echo "texp-window: refusing invalid window address '$1'" >&2; exit 2; }
+  printf "{ window = 'address:%s'" "$1"
+}
 
 case "$ACTION" in
   resolve)
@@ -190,6 +218,7 @@ case "$ACTION" in
   move)
     WS="${POS[0]-}"
     [ -n "$WS" ] || { echo "usage: texp-window move <workspace-id>" >&2; exit 2; }
+    is_ws "$WS" || { echo "texp-window: invalid workspace '$WS' (1..10)" >&2; exit 2; }
     ADDR="$(resolve)"
     [ -n "$ADDR" ] || exit 0
     lua_call "hl.dispatch(hl.dsp.window.move($(win "$ADDR"), workspace = '${WS}', follow = false }))"
