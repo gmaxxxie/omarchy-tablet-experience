@@ -1,0 +1,53 @@
+#!/bin/bash
+# texp-hw-laptop-closed — PAM "skip fingerprint" gate (sudo / polkit).
+#
+# Same contract as Omarchy's /usr/bin/omarchy-hw-laptop-closed, extended for
+# detachable 2-in-1s whose fingerprint reader lives on the keyboard:
+#   exit 0 -> skip fingerprint, require password  (lid closed / reader absent)
+#   exit 1 -> try fingerprint                     (lid open / reader present)
+#
+# A detachable has no lid, so Omarchy's own check always returns "not closed"
+# and pam_fprintd is tried against a reader that is GONE in tablet mode
+# (keyboard detached -> no fingerprint sensor). Treating keyboard-detach like
+# "lid closed" makes sudo/polkit ask for the password deterministically
+# instead of waiting on a missing device.
+#
+# Only machines that actually carry the detachable keyboard get this
+# treatment (DMI product string contains Detachable/X12/Surface, or the
+# OMARCHY_KB_VENDOR / OMARCHY_KB_PRODUCT overrides are set); normal laptops
+# with built-in readers are untouched. Works from PAM: reads only /proc, /sys
+# and /sys/bus/usb (sysfs), no device drivers, no root privileges needed.
+
+# 1) real lid: closed -> password
+for state in /proc/acpi/button/lid/*/state; do
+  [[ -r $state ]] || continue
+  [[ $(< "$state") == *"closed"* ]] && exit 0
+done
+
+# 2) is this a detachable 2-in-1 whose keyboard carries the reader?
+DMI="$(cat /sys/class/dmi/id/product_name /sys/class/dmi/id/product_version \
+        2>/dev/null | tr '\n' ' ')"
+DETACHABLE=0
+case "$DMI" in
+  *Detachable*|*X12*|*Surface*) DETACHABLE=1 ;;
+esac
+# explicit overrides declare a detachable keyboard regardless of DMI
+if [ -n "${OMARCHY_KB_VENDOR:-}" ] && [ -n "${OMARCHY_KB_PRODUCT:-}" ]; then
+  DETACHABLE=1
+fi
+if [ "$DETACHABLE" = "0" ]; then
+  exit 1   # not a detachable: reader is fixed, try fingerprint as before
+fi
+
+# 3) keyboard attached?  (sysfs USB scan — same probe as texp-kbdetect)
+VENDOR="${OMARCHY_KB_VENDOR:-17ef}"
+PRODUCT="${OMARCHY_KB_PRODUCT:-60fe}"
+for dev in /sys/bus/usb/devices/*; do
+  [ -r "$dev/idVendor" ] || continue
+  [ "$(cat "$dev/idVendor" 2>/dev/null)" = "$VENDOR" ] || continue
+  if [ "$(cat "$dev/idProduct" 2>/dev/null)" = "$PRODUCT" ]; then
+    exit 1   # keyboard present -> reader present -> try fingerprint
+  fi
+done
+
+exit 0   # keyboard detached -> tablet mode -> require password

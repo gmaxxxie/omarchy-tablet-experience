@@ -74,6 +74,7 @@ Uninstall: `uninstall.sh` (system side) + `omarchy plugin remove maxt.tablet-exp
 | 16 | **Dedicated tablet window-manage icon (v1.8) + top-bar-disappears-on-detach fix (v1.8.1)** | ✅ v1.8: close/move moved out of ⋮ into its own window icon popup. v1.8.1 BUGFIX: detaching the keyboard sometimes hid the top bar — root cause = the 5px top-edge strip's TapHandler swallowed a stray touch landing on it at the moment tablet mode starts, flipping `bar-off` on. Fix: the strip now only **arms 2s after it shows** (re-arms each show), so the detach-time touch can't toggle the bar. Verified: clean tablet entry no longer sets bar-off (bar stays shown); strip tap toggle still works after the debounce |
 | 17 | **Auto-orient calibration (v1.9)** | ✅ FIXED. User reported "holding landscape but screen went portrait" — root cause: `texp-orient`'s X/Y axis→posture mapping followed the iio convention but is rotated vs the X12 accelerometer's actual mounting, so handheld-landscape (−Y gravity) was misclassified `left-up` → rotated 90°. 4-position physical calibration (2026-09-02) measured: landscape 打横 → −Y, right-long-edge-down → +X, left-long-edge-down → −X, upside-down → +Y. New classify(): +X→left-up(90°), −X→right-up(270°), +Y→bottom-up(180°), −Y→normal(0°), ±Z unchanged (flat). Self-check with all 4 captured vectors passes; live sensor now labels landscape `normal` and screen holds 0° with auto-orient on |
 | 18 | **Two-finger tap = right click (v1.12.2)** | ✅ user asked whether 2-finger touch equals right-click (it did NOT — texp-touch mapped it to close-panels). Changed tap2 to **right click** via ydotool: move cursor to touch point (`ydotool mousemove --absolute`) + `ydotool click 3`. Added ydotool to required packages, a uinput udev rule (`/dev/uinput` root:input 0660), enabled `ydotool.service` (needs `input` group at login; current session starts it via `newgrp input`), and setpriv-started texp-touch under the input group. Verified `ydotool click 3` exit 0 + socket up. NOTE: this replaced the old "2-finger tap closes panels" gesture |
+| 19 | **sudo/polkit fingerprint gate (v1.15)** | ✅ tablet mode can't use the fingerprint reader (it lives on the folio keyboard, 17ef:60fe) — `texp-hw-laptop-closed` extends Omarchy's lid-closed PAM gate so keyboard-detach counts as "closed": sudo/polkit skip pam_fprintd and ask for the password deterministically instead of waiting on a missing reader. Normal laptops untouched (DMI-gated). See below |
 
 ## System facts (captured 2026-08-28)
 
@@ -253,6 +254,16 @@ Plans / ideas:
 - [x] **wvkbd color scheme matched to the current theme (v1.14.0)** — texp-vk passes `omarchy theme color` to wvkbd at spawn; `OMARCHY_VK_THEME=off` to disable
 - [ ] Chinese candidate UX on wvkbd (e.g. dedicated pinyin layer / bigger digits)
 - [ ] confirm squeekboard fallback path still clean after the wvkbd switch (it stays installed)
+
+**Done this round (2026-09-03, v1.15.0): tablet mode forces password — sudo/polkit fingerprint gate.**
+
+User: "tablet模式不能用指纹识别了，因为键盘才有指纹识别采集，那么sudo要密码方式了" — the fingerprint reader sits on the folio keyboard (17ef:60fe), so detaching it (tablet mode) removes the reader and pam_fprintd is tried against a missing device.
+
+- Omarchy already gates fingerprint behind a lid check: `/etc/pam.d/sudo` and `/etc/pam.d/polkit-1` run `pam_exec.so quiet /usr/bin/omarchy-hw-laptop-closed` with `[success=1 default=ignore]` — exit 0 (lid closed) skips pam_fprintd → password; exit 1 (lid open) tries fingerprint. A detachable has no lid, so it always exits 1.
+- `scripts/texp-hw-laptop-closed` — same contract, extended: (1) real lid closed → exit 0; (2) only machines that carry the detachable keyboard get extra handling — DMI product string contains Detachable/X12/Surface, or OMARCHY_KB_VENDOR/PRODUCT overrides set (normal laptops with built-in readers are untouched); (3) keyboard attached (sysfs USB 17ef:60fe, same probe as texp-kbdetect) → exit 1 (try fingerprint); keyboard detached → exit 0 (tablet mode → password). sysfs-only, works from PAM as any uid.
+- install.sh replaces the `omarchy-hw-laptop-closed` path with `$BIN_DIR/texp-hw-laptop-closed` in /etc/pam.d/sudo and /etc/pam.d/polkit-1 (backup + idempotent), `--verify` checks both are wired. uninstall.sh restores Omarchy's original line; the helper is removed by the script loop.
+- Helper logic verified as the desktop user: keyboard attached → exit 1, simulated detach (OMARCHY_KB_VENDOR=0000) → exit 0, fake non-detachable DMI → exit 1. PAM sed verified on file copies. `omarchy-lock-fingerprint` (required pam_fprintd, omarchy's dedicated lock-screen path) left untouched — out of scope.
+- **Live apply needs sudo** (editing /etc/pam.d/*) — run the install.sh PAM step or `./install.sh` in a terminal.
 
 **Done this round (2026-09-03, v1.14.0): wvkbd colors match the active Omarchy theme.**
 

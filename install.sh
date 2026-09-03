@@ -208,6 +208,15 @@ if [ "$VERIFY" -eq 1 ]; then
     warn "voxtype not installed — post-process hook skipped"
   fi
 
+  # sudo/polkit fingerprint gate for the detachable keyboard (v1.15)
+  for pf in /etc/pam.d/sudo /etc/pam.d/polkit-1; do
+    if [ -f "$pf" ] && grep -qF -- "$BIN_DIR/texp-hw-laptop-closed" "$pf"; then
+      ok "PAM $pf: fingerprint gate wired to texp-hw-laptop-closed"
+    else
+      bad "PAM $pf: fingerprint gate not wired — re-run install.sh (sudo needed)"
+    fi
+  done
+
   if [ "$FAIL" -eq 1 ]; then
     echo; echo "FAILURES FOUND — re-run: $0   (or --no-packages --dry-run to preview)"; exit 1
   fi
@@ -342,6 +351,29 @@ if ! pgrep -x ydotoold >/dev/null 2>&1; then
   ( newgrp input -c 'ydotoold' ) </dev/null >/dev/null 2>&1 &
 fi
 log "ydotool: daemon + service enabled (two-finger tap = right click)"
+
+# ------------------------------------------- sudo/polkit fingerprint gate (v1.15)
+# The X12's fingerprint reader lives on the folio keyboard (17ef:60fe), so in
+# tablet mode (keyboard detached) there is NO reader and pam_fprintd is tried
+# against a missing device. Omarchy already gates fingerprint behind a "lid
+# closed" check (pam_exec /usr/bin/omarchy-hw-laptop-closed) — a detachable
+# has no lid, so it never fires and sudo/polkit always try fingerprint. Point
+# that gate at our texp-hw-laptop-closed, which ALSO treats keyboard-detach
+# like lid-closed: sudo/polkit then ask for the password deterministically in
+# tablet mode (no waiting on a dead reader). Normal laptops are untouched.
+PAM_GATE_OLD='pam_exec.so quiet /usr/bin/omarchy-hw-laptop-closed'
+PAM_GATE_NEW="pam_exec.so quiet $BIN_DIR/texp-hw-laptop-closed"
+for pf in /etc/pam.d/sudo /etc/pam.d/polkit-1; do
+  if [ -f "$pf" ] && grep -qF -- "$PAM_GATE_OLD" "$pf"; then
+    backup_file "$pf"
+    run sed -i "s|$PAM_GATE_OLD|$PAM_GATE_NEW|" "$pf"
+    log "PAM $pf: fingerprint gate -> $BIN_DIR/texp-hw-laptop-closed"
+  elif [ -f "$pf" ] && grep -qF -- "$PAM_GATE_NEW" "$pf"; then
+    log "PAM $pf: fingerprint gate already wired"
+  else
+    warn "$pf: Omarchy fingerprint gate line not found — left untouched"
+  fi
+done
 
 # ------------------------------------------------------- Hyprland hooks
 log "wiring Hyprland config ($HYPR_DIR)"

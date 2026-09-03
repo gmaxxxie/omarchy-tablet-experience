@@ -105,6 +105,18 @@ if [ -e "$INPUT_RULE" ]; then
   fi
 fi
 
+# ------------------------------------------------------- PAM fingerprint gate
+# Reverse the sudo/polkit gate: put Omarchy's original lid check back. The
+# helper itself is removed by the script loop above (byte-match only).
+PAM_GATE_OLD="$BIN_DIR/texp-hw-laptop-closed"
+PAM_GATE_NEW='pam_exec.so quiet /usr/bin/omarchy-hw-laptop-closed'
+for pf in /etc/pam.d/sudo /etc/pam.d/polkit-1; do
+  if [ -f "$pf" ] && grep -qF -- "$PAM_GATE_OLD" "$pf"; then
+    run sed -i "s|$PAM_GATE_OLD|$PAM_GATE_NEW|" "$pf"
+    log "PAM $pf: fingerprint gate restored to Omarchy's omarchy-hw-laptop-closed"
+  fi
+done
+
 # ------------------------------------------------------- summary
 cat <<EOF
 
