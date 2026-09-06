@@ -9,9 +9,10 @@ import qs.Ui
 // (show/hide squeekboard, live state highlight), a voice-input icon (v1.5,
 // voxtype hold-to-talk overlay), a dedicated window-manage icon (v1.8,
 // close / move-to-workspace popup) plus the ⋮ overflow popup.
-// The IM switch, the keyboard icon and the voice-input icon are TABLET-MODE
-// ONLY (in laptop mode the physical keyboard is docked); the mode button is
-// always visible.
+// The IM switch and the voice-input icon are TABLET-MODE ONLY (in laptop
+// mode the physical keyboard is docked); the KEYBOARD icon and the mode
+// button are available in BOTH modes (v1.17: the virtual keyboard button is
+// one tap away even in laptop mode, e.g. to type on the touchscreen).
 //
 // The buttons are always mounted so there is always an entry point: laptop
 // mode shows the mode label and the popup only offers Laptop/Tablet;
@@ -125,12 +126,13 @@ Panel {
       }
     }
 
-    // Virtual keyboard show/hide — TABLET MODE ONLY, one tap (same texp-vk
-    // path as SUPER+U / the bottom-edge up-swipe; live state highlight).
+    // Virtual keyboard show/hide — BOTH MODES since v1.17 (one tap, same
+    // texp-vk path as SUPER+U / the bottom-edge up-swipe; live state
+    // highlight).
     WidgetButton {
       id: vkButton
       bar: root.bar
-      visible: root.tablet
+      visible: true
       text: "\uF11C"            // fa-keyboard (glyph covered by the bar font, verified)
       active: root.vkVisible
       tooltipText: root.vkVisible
@@ -518,23 +520,45 @@ Panel {
   }
 
   // -------- virtual keyboard: toggle process + visibility poll (v1.12)
-  // Visibility is mirrored by texp-vk to ~/.local/state/texp-vk/visible
-  // (wvkbd-deskintl primary, squeekboard fallback) — read that instead of
-  // D-Bus so the icon agrees with whichever keyboard texp-vk controls.
+  // Visibility = the keyboard layer actually present in `hyprctl layers`
+  // (v1.17: the old state-file probe went stale when the keyboard was
+  // collapsed with its built-in ▼ key — the bar icon stayed highlighted and
+  // the next tap was a redundant hide). Layer presence == shown (wvkbd hides
+  // by unmapping).
   BoundedProcess {
     id: vkCmd
   }
 
   BoundedProcess {
     id: vkProbe
-    command: ["bash", "-c", "cat \"$HOME/.local/state/texp-vk/visible\" 2>/dev/null; echo; true"]
-    onStreamFinished: root.vkVisible = /visible/.test(String(output || "").trim())
+    command: ["hyprctl", "layers", "-j"]
+    onStreamFinished: {
+      var vis = false
+      try {
+        var d = JSON.parse(output || "{}")
+        for (var out in d) {
+          var levels = (d[out] || {}).levels || {}
+          for (var lvl in levels) {
+            var arr = levels[lvl] || []
+            for (var i = 0; i < arr.length; i++) {
+              if (String(arr[i].namespace || "").indexOf("wvkbd") !== -1) {
+                vis = true
+                break
+              }
+            }
+            if (vis) break
+          }
+          if (vis) break
+        }
+      } catch (e) {}
+      root.vkVisible = vis
+    }
   }
 
   Timer {
     id: vkRefreshTimer
     interval: 1500
-    running: root.tablet        // icon hidden in laptop mode — nothing to poll
+    running: true         // v1.17: icon now shows in BOTH modes
     repeat: true
     triggeredOnStart: true
     onTriggered: {

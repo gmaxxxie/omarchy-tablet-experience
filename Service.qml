@@ -145,11 +145,11 @@ Item {
   // v1.11: on-screen keyboard visibility (voice input <-> VK are exclusive).
   property bool vkVisible: false
   // v1.17: lock-screen virtual keyboard. Hyprland renders wvkbd ABOVE the
-  // Quickshell ext-session-lock surface (`above_lock 2, match:namespace
-  // wvkbd` layerrule, installed by config/hypr/tablet-experience.lua), so
-  // in tablet mode the lock screen shows the keyboard for password entry.
-  // `locked` mirrors `omarchy-shell lock status`; `lockVkShown` remembers
-  // when WE raised it so it can be put down on unlock / laptop exit.
+  // Quickshell ext-session-lock surface (hl.layer_rule above_lock 2,
+  // installed by config/hypr/tablet-experience.lua), so the lock screen
+  // offers BOTH password typing and fingerprint. `locked` mirrors
+  // `omarchy-shell lock status`; `lockVkShown` remembers when WE raised the
+  // keyboard so it can be put down on unlock.
   property bool locked: false
   property bool lockVkShown: false
   property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR") || ""
@@ -430,9 +430,10 @@ Item {
     triggeredOnStart: true
     onTriggered: {
       root.syncTabletLayout()
-      // v1.17: if we came up already in tablet mode, pre-start the keyboard
-      // (hidden) so a lock can raise it instantly by signal.
-      if (root.isTabletMode) root.preStartVk()
+      // v1.17: pre-start the keyboard (hidden) on load — a lock in ANY mode
+      // can then raise it instantly by signal (no new Wayland client has to
+      // connect under a lock).
+      root.preStartVk()
       // Laptop must sit at the default angle even right after a restart with
       // the display still rotated (requirement: choosing laptop always resets).
       if (!root.isTabletMode && root.liveTransform !== 0 && !rotateProcess.running) {
@@ -541,19 +542,22 @@ Item {
     vkCmd.running = true
   }
 
-  // v1.17: lock-state mirror. Locked + tablet -> show the on-screen
-  // keyboard for the password field; unlocked -> put it back down (it stays
-  // pre-started hidden for the next lock). Laptop mode keeps a real
-  // keyboard, so nothing shows there.
+  // v1.17: lock-state mirror. Locked -> raise the on-screen keyboard for the
+  // password field, so the lock screen offers BOTH typing and fingerprint
+  // (the user chooses; the keyboard is collapsible with its ▼ key, and the
+  // floating "keyboard" button re-invokes it). Unlocked -> put it back down
+  // (it stays pre-started hidden for the next lock).
+  //
+  // The show is UNCONDITIONAL (no !vkVisible gate): texp-vk show is
+  // idempotent, and gating on the polled state-file let a STALE "visible"
+  // file (e.g. wvkbd killed behind our back) silently skip the raise.
   function onLockState(next) {
     var changed = next !== root.locked
     root.locked = next
     if (!changed) return
     if (next) {
-      if (root.isTabletMode && !root.vkVisible) {
-        root.lockVkShown = true
-        root.showVk()
-      }
+      root.lockVkShown = true
+      root.showVk()
     } else if (root.lockVkShown) {
       root.lockVkShown = false
       root.hideVk()
@@ -564,10 +568,11 @@ Item {
     if (!lockProbe.running) lockProbe.running = true
   }
 
-  // Track keyboard visibility (bar button, SUPER+U and the 3-finger tap all
-  // route through texp-vk, which mirrors state to
-  // ~/.local/state/texp-vk/visible). If the keyboard comes up while voice
-  // input is open, close voice input (v1.11).
+  // Track keyboard visibility (bar button, SUPER+U, 3-finger tap and the
+  // lock-screen button all route through texp-vk; vkProbe reads the REAL
+  // layer presence from `hyprctl layers`, so a ▼-key collapse is seen too).
+  // If the keyboard comes up while voice input is open, close voice input
+  // (v1.11).
   function onVkState(out) {
     var vis = /visible/.test(String(out || ""))
     var changed = vis !== root.vkVisible
@@ -601,8 +606,34 @@ Item {
 
   BoundedProcess {
     id: vkProbe
-    command: ["bash", "-c", "cat \"$HOME/.local/state/texp-vk/visible\" 2>/dev/null; echo; true"]
-    onStreamFinished: root.onVkState(String(output || "").trim())
+    // v1.17: visibility = the keyboard layer ACTUALLY being present in
+    // `hyprctl layers`. The old state-file probe went stale when the keyboard
+    // was collapsed with its built-in ▼ key (wvkbd hides itself but nothing
+    // writes the texp-vk/visible state file), so the bar/button stayed
+    // "highlighted" and the next tap did a redundant hide — two taps to
+    // re-show. Layer presence == shown (wvkbd hides by unmapping).
+    command: ["hyprctl", "layers", "-j"]
+    onStreamFinished: {
+      var vis = false
+      try {
+        var d = JSON.parse(output || "{}")
+        for (var out in d) {
+          var levels = (d[out] || {}).levels || {}
+          for (var lvl in levels) {
+            var arr = levels[lvl] || []
+            for (var i = 0; i < arr.length; i++) {
+              if (String(arr[i].namespace || "").indexOf("wvkbd") !== -1) {
+                vis = true
+                break
+              }
+            }
+            if (vis) break
+          }
+          if (vis) break
+        }
+      } catch (e) {}
+      root.onVkState(vis ? "visible" : "hidden")
+    }
   }
 
   // v1.17: lock-screen VK. `omarchy-shell lock status` is the lock plugin's
@@ -996,6 +1027,70 @@ Item {
               font.pixelSize: 22
             }
             TapHandler { onTapped: root.sendArrow("Down") }
+          }
+        }
+      }
+    }
+  }
+
+  // ------------------------------------------------- lock-screen keyboard button (v1.17)
+  // A floating "keyboard" toggle button on the LOCK screen, parked just
+  // RIGHT of the centered password field (the Omarchy lock view centers its
+  // 381x67 field, so the button sits at screen-right of that spot, vertically
+  // centered). Rendered ABOVE the Quickshell lock surface via the
+  // `above_lock 2` rule on namespace maxt-tablet-vk-toggle
+  // (config/hypr/tablet-experience.lua) — shell-created layers render above
+  // the lock reliably. Available in BOTH tablet and laptop mode: tap to show
+  // the virtual keyboard (or hide it if it is up); fingerprint stays
+  // available as the other method.
+  Variants {
+    model: Quickshell.screens
+    delegate: Component {
+      PanelWindow {
+        id: lockVkButton
+        required property var modelData
+        screen: modelData
+        visible: root.locked
+        color: "transparent"
+        WlrLayershell.namespace: "maxt-tablet-vk-toggle"
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        exclusionMode: ExclusionMode.Ignore
+
+        // Just right of the centered password field, on its vertical center.
+        // The field is 381x67 centered; park this button 36px to its right.
+        anchors { right: true; bottom: true }
+        margins {
+          right: Math.max(0, modelData.width / 2 - 190 - 36 - 64)
+          bottom: Math.max(0, modelData.height / 2 - 32)
+        }
+        implicitWidth: 64
+        implicitHeight: 64
+
+        Rectangle {
+          anchors.fill: parent
+          radius: 32
+          color: Util.alpha(Color.accent, 0.85)
+          border.width: 2
+          border.color: root.vkVisible ? Color.foreground : Util.alpha(Color.foreground, 0.6)
+
+          Text {
+            anchors.centerIn: parent
+            text: "\uF11C"        // fa-keyboard (glyph covered by the bar font)
+            color: "#ffffff"
+            font.family: Style.font.family
+            font.pixelSize: 26
+          }
+
+          TapHandler {
+            onTapped: {
+              // Pure "invoke the keyboard" button (the keyboard's own ▼ key
+              // collapses it). Always showing is idempotent, so a tap while
+              // the keyboard is already up is harmless — and there is never a
+              // stale-state "first tap does nothing" double-press.
+              root.lockVkShown = true
+              root.showVk()
+            }
           }
         }
       }

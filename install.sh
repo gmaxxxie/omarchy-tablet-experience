@@ -101,10 +101,17 @@ if [ "$VERIFY" -eq 1 ]; then
     && bad "autostart: texp-vk daemon hook present (bottom-swipe gesture is off by default) — remove the line or re-run install.sh" \
     || ok "autostart: no texp-vk daemon hook (bottom-swipe gesture disabled)"
 
-  # lock-screen VK layerrule (v1.17): wvkbd renders above the Quickshell lock
-  grep -qF 'above_lock 2, match:namespace wvkbd' "$HYPR_DIR/tablet-experience.lua" 2>/dev/null \
-    && ok "lock-screen VK layerrule (above_lock 2, wvkbd)" \
-    || bad "lock-screen VK layerrule missing — re-run install.sh"
+  # lock-screen VK layerrules (v1.17): wvkbd + the lock "keyboard" button
+  # render above the Quickshell lock — the FUNCTIONAL hl.layer_rule() form is
+  # required (string hl.config layerrule entries drop functional rules,
+  # verified by pixel-sampling a locked screenshot).
+  if grep -qF 'above_lock = 2' "$HYPR_DIR/tablet-experience.lua" 2>/dev/null \
+      && grep -qF 'namespace = "wvkbd"' "$HYPR_DIR/tablet-experience.lua" 2>/dev/null \
+      && grep -qF 'namespace = "maxt-tablet-vk-toggle"' "$HYPR_DIR/tablet-experience.lua" 2>/dev/null; then
+    ok "lock-screen VK layerrules (hl.layer_rule above_lock 2: wvkbd + toggle)"
+  else
+    bad "lock-screen VK layerrules missing — re-run install.sh"
+  fi
 
   # login-screen VK (v1.17): derived greeter compositor + gate + sddm drop-in
   if [ -f /usr/share/sddm/tablet-hyprland.lua ] \

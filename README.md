@@ -34,17 +34,19 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   `~/.config/hypr/autostart.lua`. `install.sh` grants the desktop user evdev
   access (udev `uaccess` rule + `input` group) so the gesture daemons can
   read the touchscreen after reboots.
-- **Virtual keyboard on the LOCK + LOGIN screens (v1.17, tablet mode)** — in
-  tablet mode the on-screen keyboard now appears on the Omarchy **lock
-  screen** for password entry and hides on unlock (Hyprland `above_lock`
-  layer rule renders wvkbd above the Quickshell lock surface; the service
-  polls `omarchy-shell lock status`). The **SDDM login screen** shows it too:
-  the greeter runs its own Hyprland, so a derived compositor config starts
-  the keyboard when the folio keyboard is detached and a touchscreen is
-  present. The project's wvkbd-deskintl build carries a visible **▼ collapse
-  key** (bottom-right) so the keyboard can be folded away anywhere — lock,
-  login, normal tablet use. (sddm's own `InputMethod=qtvirtualkeyboard` is a
-  dead end on Wayland.)
+- **Virtual keyboard on the LOCK + LOGIN screens (v1.17, both modes)** — the
+  Omarchy **lock screen** now offers BOTH methods: fingerprint, and a
+  **"keyboard" button right of the password field** that invokes the on-screen
+  keyboard for touch typing (rendered above the lock via Hyprland's
+  `above_lock` layer rule; auto-shows on lock in tablet AND laptop mode;
+  collapses with the keyboard's ▼ key; hides on unlock). The bar's keyboard
+  toggle icon also now works in both modes. The **SDDM login screen** shows
+  the keyboard too: the greeter runs its own Hyprland, so a derived
+  compositor config starts it when the folio keyboard is detached and a
+  touchscreen is present. The project's wvkbd-deskintl build carries a
+  visible **▼ collapse key** (bottom-right) so the keyboard can be folded
+  away anywhere — lock, login, normal tablet use. (sddm's own
+  `InputMethod=qtvirtualkeyboard` is a dead end on Wayland.)
 - **Tablet simplified bar (v1.2)** — LAPTOP mode keeps the default full bar;
   TABLET mode pares it to essentials (menu · workspaces · clock · tray ·
   network · audio · power · this widget) and the rest (weather, indicators,
