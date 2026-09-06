@@ -183,11 +183,12 @@ is_ws() {  # $1 numeric workspace id, 1..10 (the bar popup range)
 }
 
 is_addr() {  # $1 Hyprland window address, e.g. 0x55d2dd0f29d0
-  case "$1" in
-    0x[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]*)
-      [ "${#1}" -le 18 ] ;;
-    *) return 1 ;;
-  esac
+  # Exact grammar: 0x + 8..16 hex digits, nothing else. A bash glob like
+  # 0x[0-9a-fA-F]*[0-9a-fA-F]* or 0x[0-9a-fA-F][0-9a-fA-F]...* cannot scope the
+  # `*` to the hex class (glob `X*` = one X then zero-or-more of ANYTHING, so
+  # 8-hex would require a 9th char and a trailing `';evil` would still pass),
+  # so the check is an anchored regex (security review finding 2).
+  [[ "$1" =~ ^0x[0-9a-fA-F]{8,16}$ ]]
 }
 
 # ---------------------------------------------------------------- dispatch
