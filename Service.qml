@@ -1404,6 +1404,7 @@ Item {
         voxtypeUp: root.voxtypeUp,
         locked: root.locked,
         lockVkShown: root.lockVkShown,
+        laptopScale: persisted.laptopScale,
         tabletLayoutActive: root.tabletLayoutActive,
         overflowWidgets: root.overflowItems.map(function(i) { return i.id })
       })
