@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -218,13 +219,29 @@ Panel {
     open: root.opened
     triggerMode: "click"
     contentWidth: panel.fittedContentWidth(Style.space(240))
-    contentHeight: panel.fittedContentHeight(actionList.implicitHeight)
+    // v1.19: cap the card height and scroll the content when the config card
+    // outgrows the screen (rotation section + a long "Extra bar icons" list
+    // used to overflow the frame). Same Flickable + AsNeeded scrollbar
+    // pattern as the tray menu.
+    contentHeight: panel.fittedContentHeight(actionList.implicitHeight, Style.space(480))
 
-    Column {
-      id: actionList
+    Flickable {
+      id: panelFlick
       anchors.fill: parent
       anchors.margins: Style.spacing.popupPadding
-      spacing: Style.spacing.sm
+      contentWidth: width
+      contentHeight: actionList.implicitHeight
+      clip: true
+      boundsBehavior: Flickable.StopAtBounds
+      flickableDirection: Flickable.VerticalFlick
+      interactive: contentHeight > height
+
+      ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+      Column {
+        id: actionList
+        width: panelFlick.width
+        spacing: Style.spacing.sm
 
       // ---- mode switch: always available
       PanelSectionHeader {

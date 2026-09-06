@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # texp-rotate — rotate the primary display (detachable tablet experience).
 #
-# Usage: texp-rotate [-s] <0|1|2|3|next|prev>
+# Usage: texp-rotate [-s] [--scale <V>] <0|1|2|3|next|prev>
 #   -s   silent: skip the OSD notification (used by auto-orientation)
+#   --scale <V>   override the monitor scale instead of preserving the
+#                 current one (the laptop-mode reset restores its snapshot)
 #   0 = landscape  1 = portrait 90°  2 = flipped 180°  3 = portrait 270°
 #   next            cycle to the following orientation (0°→90°→180°→270°→0°)
 #   prev            cycle backwards
@@ -26,9 +28,12 @@ set -eu
 DISP="${OMARCHY_ROTATE_DISPLAY:-$(hyprctl monitors -j 2>/dev/null | grep -o '"name": *"[^"]*"' | head -1 | cut -d'"' -f4 || true)}"
 [ -n "$DISP" ] || DISP="eDP-1"
 SILENT=0
+OPT_SCALE=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -s|--silent) SILENT=1; shift ;;
+    --scale) OPT_SCALE="${2:-}"; shift 2 ;;
+    --scale=*) OPT_SCALE="${1#--scale=}"; shift ;;
     *) break ;;
   esac
 done
@@ -53,7 +58,25 @@ case "$N" in
   3) label="portrait 270°" ;;
 esac
 
-hyprctl eval "hl.monitor({ output = \"${DISP}\", transform = ${N} })" >/dev/null
+# Preserve the monitor scale: hl.monitor() without a scale field re-derives a
+# default from EDID/DPI and silently resets the user's scale (observed
+# 1.25 -> 1.6 on a laptop->tablet->laptop round trip). Default = keep the
+# CURRENT scale so rotation never changes it; --scale overrides (the laptop
+# exit restores the snapshot taken on tablet entry).
+if [ -n "$OPT_SCALE" ]; then
+  SCALE="$OPT_SCALE"
+else
+  SCALE="$(hyprctl monitors -j 2>/dev/null | python3 -c 'import json,sys
+ms=json.load(sys.stdin)
+want=sys.argv[1]
+m=next((x for x in ms if x.get("name")==want), None)
+print(str(m["scale"]) if m and m.get("scale") else "1")' "$DISP" 2>/dev/null || echo 1)"
+fi
+case "$SCALE" in
+  ''|*[!0-9.]*) SCALE=1 ;;
+esac
+
+hyprctl eval "hl.monitor({ output = \"${DISP}\", transform = ${N}, scale = ${SCALE} })" >/dev/null
 # Keep the touch device's calibration matrix in step with the screen, or taps
 # land mirrored/mis-mapped on a rotated display.
 hyprctl eval "hl.config({ input = { touchdevice = { transform = ${N} } } })" >/dev/null 2>&1 || true

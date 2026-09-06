@@ -65,7 +65,7 @@ import qs.Commons
 Item {
   id: root
 
-  Component.onCompleted: console.log("tablet-experience Service LOADED v1.18")
+  Component.onCompleted: console.log("tablet-experience Service LOADED v1.19")
 
   property var shell: null
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
@@ -171,6 +171,10 @@ Item {
     // Folio keyboard attach/detach drives the mode: attached → laptop,
     // detached → tablet. Default ON — the X12 is a detachable.
     property bool autoSwitchMode: true
+    // v1.19: the laptop monitor scale, snapshotted on tablet entry and
+    // restored on laptop exit — hl.monitor() without a scale field would
+    // silently reset it (observed 1.25 -> 1.6). Empty = never snapshotted.
+    property string laptopScale: ""
   }
 
   // ------------------------------------------------------------- actions
@@ -257,11 +261,15 @@ Item {
   // Runs the deferred laptop-mode display reset once the rotation process
   // is idle. texp-rotate is idempotent, so re-applying transform 0 (and the
   // matching touch-device calibration) is harmless even if already at 0°.
+  // v1.19: pass the laptop-scale snapshot (--scale) so the reset restores
+  // the laptop scale instead of letting hl.monitor() re-derive a default.
   function tryLaptopReset() {
     if (!root.pendingLaptopReset || root.isTabletMode) return
     if (rotateProcess.running) return
     root.pendingLaptopReset = false
-    rotateProcess.command = ["texp-rotate", "-s", "0"]
+    var args = ["texp-rotate", "-s", "0"]
+    if (persisted.laptopScale) args.push("--scale", persisted.laptopScale)
+    rotateProcess.command = args
     rotateProcess.running = true
   }
 
@@ -296,6 +304,10 @@ Item {
     // only when the user asks for it explicitly (popup Auto / ⟲⟳ /
     // setRotation), and the "auto" preset keeps following the sensor posture
     // when it is already enabled.
+    // v1.19: snapshot the laptop scale so leaving tablet mode restores it
+    // (nothing changes the scale on tablet entry itself, so reading it right
+    // here is the laptop value; the probe is async and lands a moment later).
+    if (!scaleProbe.running) scaleProbe.running = true
     // v1.17: pre-start the virtual keyboard (hidden) so the lock screen can
     // raise it instantly by signal.
     root.preStartVk()
@@ -1323,6 +1335,21 @@ Item {
       }
     } else if (hasSnapshot) {
       root.restoreOriginalLayout()
+    }
+  }
+
+  // v1.19: laptop-scale snapshot for the tablet entry — reads the primary
+  // monitor's scale once and stores it in persisted.laptopScale.
+  BoundedProcess {
+    id: scaleProbe
+    command: ["hyprctl", "monitors", "-j"]
+    onStreamFinished: {
+      try {
+        var ms = JSON.parse(output || "[]")
+        if (!Array.isArray(ms) || ms.length === 0) return
+        var s = String(Number(ms[0].scale || 1))
+        if (s !== persisted.laptopScale) persisted.laptopScale = s
+      } catch (e) {}
     }
   }
 

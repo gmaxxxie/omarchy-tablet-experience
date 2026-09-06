@@ -21,6 +21,11 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   with the screen (Hyprland does not do this itself). **Selecting Laptop
   mode always returns the display to the default 0° landscape** — even
   mid-rotation, the reset is queued until the current rotation finishes.
+  **Rotation/reset always preserves the monitor scale** (v1.19: `hl.monitor()`
+  without a scale field silently re-derives a default — observed 1.25→1.6 on
+  a laptop→tablet→laptop round trip; texp-rotate now passes the current scale
+  through, snapshots the laptop scale on tablet entry and restores it on
+  laptop exit).
 - **Virtual keyboard (v1.12: wvkbd-deskintl)** — squeekboard via `SUPER+U`,
   the **tablet bar button** (live show/hide state) or a 3-finger tap
   (`texp-touch`). Since v1.12 the keyboard is **wvkbd-deskintl** — a
@@ -57,7 +62,10 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   the popup lists every hidden bar icon (tap to mount it back) plus window
   manage & rotation. Each icon in the popup is an **on/off toggle** (✓ = on
   the bar, tap to hide; empty = hidden, tap to show) and **Hide all / Show
-  all** switches the whole set instantly — all within tablet mode. The
+  all** switches the whole set instantly — all within tablet mode. **The
+  config card scrolls when it outgrows the screen** (v1.19: a long "Extra bar
+  icons" list used to overflow the popup frame; now capped + scrollable,
+  scrollbar appears only when needed). The
   pre-tablet layout is carried inside shell.json (`bar.layoutSnapshot`,
   invisible to the bar), so it restores verbatim on laptop and survives shell
   restarts and crashes.
