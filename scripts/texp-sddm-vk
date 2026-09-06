@@ -24,14 +24,19 @@
 # ============================================================================
 set -euo pipefail
 
+log() { logger -t texp-sddm-vk "$*" || true; }
+
 VENDOR="${OMARCHY_KB_VENDOR:-17ef}"
 PRODUCT="${OMARCHY_KB_PRODUCT:-60fe}"
+
+log "start (sddm greeter compositor up)"
 
 # 1. Detachable keyboard attached -> real keyboard present, no OSK needed.
 for dev in /sys/bus/usb/devices/*; do
   [ -r "$dev/idVendor" ] || continue
   [ "$(cat "$dev/idVendor" 2>/dev/null)" = "$VENDOR" ] || continue
   if [ "$(cat "$dev/idProduct" 2>/dev/null)" = "$PRODUCT" ]; then
+    log "keyboard attached (${VENDOR}:${PRODUCT}) — no OSK"
     exit 0
   fi
 done
@@ -39,6 +44,7 @@ done
 # 2. No touchscreen -> a plain laptop/desktop, never show the OSK.
 #    (Sysfs device names are world-readable, unlike /dev/input nodes.)
 if ! grep -riE 'touchscreen|wacom|elan.*touch' /sys/class/input/input*/name 2>/dev/null | grep -qiE '.'; then
+  log "no touchscreen — no OSK"
   exit 0
 fi
 
@@ -50,7 +56,8 @@ for bin in wvkbd-deskintl wvkbd-mobintl wvkbd squeekboard; do
     break
   fi
 done
-[ -n "$VK" ] || exit 0
+[ -n "$VK" ] || { log "no keyboard binary found — no OSK"; exit 0; }
+log "launching $VK (keyboard detached + touchscreen)"
 
 case "$VK" in
   wvkbd*) exec setsid "$VK" -H 350 -L 350 >/dev/null 2>&1 ;;
