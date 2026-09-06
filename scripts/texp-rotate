@@ -29,15 +29,16 @@ DISP="${OMARCHY_ROTATE_DISPLAY:-$(hyprctl monitors -j 2>/dev/null | grep -o '"na
 [ -n "$DISP" ] || DISP="eDP-1"
 SILENT=0
 OPT_SCALE=""
+ARG=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -s|--silent) SILENT=1; shift ;;
     --scale) OPT_SCALE="${2:-}"; shift 2 ;;
     --scale=*) OPT_SCALE="${1#--scale=}"; shift ;;
-    *) break ;;
+    *) ARG="$1"; shift ;;
   esac
 done
-ARG="${1:-0}"
+ARG="${ARG:-0}"
 
 case "$ARG" in
   0) N=0; label="landscape 0°" ;;
