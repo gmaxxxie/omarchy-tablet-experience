@@ -80,7 +80,10 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
 - **Multi-touch gestures** (`texp-touch`, passive evdev listener, no grab) —
   2-finger tap: **right click** (v1.12.2 — context menu / AI-terminal paste,
   injected via ydotool) · 2-finger swipe left/right: previous/next workspace · 2-finger swipe down: Omarchy menu · single-finger
-  tap: focus the tapped window (Hyprland touch never focuses).
+  tap: focus the tapped window (Hyprland touch never focuses) · **any touch
+  while the Omarchy screensaver is up: tap-to-dismiss it** (v1.17.2 — a
+  desktop keypress/focus-loss never fires on a fullscreen touchscreen, so the
+  tap SIGTERMs the screensaver and the idle service wakes the display).
 - **Keyboard auto mode-switch** — dock the keyboard → laptop mode, detach →
   tablet mode (USB presence, on by default).
 - **Tablet window manage** — **v1.8: a dedicated window icon** in the tablet
@@ -154,6 +157,7 @@ verify with `install.sh --verify`.
 | Right click (context menu / paste) | **2-finger tap** (v1.12.2, ydotool) |
 | Previous / next workspace | 2-finger swipe left / right |
 | Omarchy menu | 2-finger swipe down |
+| Dismiss the screensaver | **any tap while the screensaver is up** (v1.17.2 — fullscreen touchscreen, no key/focus to wake it) |
 
 In tablet mode the bar button opens the **window-manage popup**: tap a window
 first, then Close ✕ / Move to Workspace 1–10 / Dwindle·Scrolling layout.

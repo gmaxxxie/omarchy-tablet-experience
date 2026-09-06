@@ -272,6 +272,28 @@ Deployment: scripts re-installed to `~/.local/bin` and texp-touch daemon restart
 
 Reviewer note (acknowledged, not a code fix): the plugin still needs manual setup because install.sh wires Hyprland startup/config and installs system packages — inherent to a system-side helper plugin; the fixed pacman allowlist + user-scoped installer are accepted as-is.
 
+**Done this round (2026-09-06, v1.17.2): tap-to-dismiss the Omarchy screensaver (tablet).**
+
+User: "屏保时点击屏幕，应该可以停止屏保回到操作界面的" — the screensaver only exits on a
+keypress (its `read -n1` loop) or on losing focus (its focus check); on a touchscreen a tap lands
+ON the fullscreen screensaver window, so it stays focused and neither trigger fires.
+
+- `scripts/texp-touch` — new `on_touch` hook in `process_events` (fires once per new finger
+gesture, on the first contact down, kept out of the gesture classifier so the replay test and
+gesture state machine are untouched) + `screensaver_running()` / `dismiss_screensaver()`. On any
+touch while the screensaver is up: SIGTERM the `org.omarchy.screensaver` terminal (same
+`pkill -f '[o]rg.omarchy.screensaver'` pattern omarchy-system-lock uses) — the screensaver's own
+trap restores the cursor, kills ttfx and exits; the idle service sees closewindow → cancels the
+idle cycle (omarchy-system-wake), so the pending lock is dropped too — exactly the desktop
+dismissal path, no focus/keypress needed.
+- Self-test: `selftest` now also asserts `on_touch` fires once per gesture (2 gestures → 2
+calls); dismissal verified against a fake `org.omarchy.screensaver` process (detected →
+SIGTERM'd, exit 143; no-match → clean no-op).
+- **Live apply: re-run `install.sh` (copies texp-touch to `~/.local/bin`) + restart the daemon**
+(`pkill -f 'texp-touch daemon'; setsid ~/.local/bin/texp-touch daemon &`) — or just wait for the
+next login. Screensaver still needs to actually be up (idle 150 s default); a real-device tap
+check is pending (my ydotool clicks can't emulate the Wacom finger device).
+
 **Done this round (2026-09-06, v1.17.0): virtual keyboard on the LOCK + LOGIN screens (tablet mode), with a visible ▼ collapse key.**
 
 User: "tablet模式，应该支持锁屏和登录时调用虚拟键盘操作" + "虚拟键盘也要支持收起来吧". Research first (web + live probing):
