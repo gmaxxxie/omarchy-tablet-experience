@@ -62,6 +62,44 @@ done
 remove_deprecated_file "$HYPR_DIR/tablet-experience.lua" \
   "$REPO_ROOT/config/hypr/tablet-experience.lua" "hypr config"
 
+# ------------------------------------------------------- login-screen VK (v1.17)
+# Reverse the SDDM greeter changes: remove the derived compositor config and
+# the gate script (byte-match only), and drop the sddm.conf.d override so the
+# stock omarchy greeter compositor is used again.
+SDDM_HYPR_CONF=/usr/share/sddm/tablet-hyprland.lua
+if [ -e "$SDDM_HYPR_CONF" ]; then
+  if cmp -s "$SDDM_HYPR_CONF" "$REPO_ROOT/config/sddm/tablet-hyprland.lua"; then
+    run sudo rm -f "$SDDM_HYPR_CONF"
+    log "removed SDDM greeter compositor config: $SDDM_HYPR_CONF"
+  else
+    warn "$SDDM_HYPR_CONF differs from the repo copy — left in place"
+  fi
+fi
+# texp-sddm-vk is root-owned (/usr/local/bin) — remove with sudo, byte-match only.
+if [ -e /usr/local/bin/texp-sddm-vk ]; then
+  if cmp -s /usr/local/bin/texp-sddm-vk "$REPO_ROOT/scripts/texp-sddm-vk"; then
+    run sudo rm -f /usr/local/bin/texp-sddm-vk
+    log "removed login-screen VK gate: /usr/local/bin/texp-sddm-vk"
+  else
+    warn "/usr/local/bin/texp-sddm-vk differs from the repo copy — left in place"
+  fi
+fi
+# The greeter copy of wvkbd-deskintl is a patched build artifact (no repo copy
+# to byte-match against) — remove it so the stock keyboard is used again.
+if [ -e /usr/local/bin/wvkbd-deskintl ]; then
+  run sudo rm -f /usr/local/bin/wvkbd-deskintl
+  log "removed greeter keyboard: /usr/local/bin/wvkbd-deskintl"
+fi
+# The wvkbd hide-key patch in the user data dir (byte-match only).
+remove_deprecated_file "${XDG_DATA_HOME:-$HOME/.local/share}/tablet-experience/wvkbd-hide-key.patch" \
+  "$REPO_ROOT/config/wvkbd/wvkbd-hide-key.patch" "wvkbd hide-key patch"
+SDDM_DROPIN=/etc/sddm.conf.d/100-tablet.conf
+if [ -e "$SDDM_DROPIN" ] && grep -qF 'tablet-hyprland.lua' "$SDDM_DROPIN"; then
+  run sudo rm -f "$SDDM_DROPIN"
+  log "removed sddm drop-in: $SDDM_DROPIN"
+else
+  [ -e "$SDDM_DROPIN" ] && warn "$SDDM_DROPIN exists but is not ours — left in place"
+fi
 # ------------------------------------------------------- helper scripts
 for src in "$REPO_ROOT"/scripts/texp-*; do
   [ -f "$src" ] || continue

@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
 # ============================================================================
-# texp-install-wvkbd — build & install wvkbd-deskintl into ~/.local/bin
-# (best-effort). The tablet experience's virtual keyboard (v1.12) prefers
-# wvkbd-deskintl because it carries the Ctrl / Super / Alt / Shift / AltGr
-# modifiers, F1-F12, a full number row (Chinese candidates) and arrows —
-# i.e. the keys you need for AI-terminal keyboard shortcuts on Omarchy.
+# texp-install-wvkbd — build & install wvkbd-deskintl (best-effort).
+#
+# The tablet experience's virtual keyboard (v1.12) prefers wvkbd-deskintl
+# because it carries the Ctrl / Super / Alt / Shift / AltGr modifiers,
+# F1-F12, a full number row (Chinese candidates) and arrows — the keys you
+# need for AI-terminal keyboard shortcuts on Omarchy.
 #
 # The Arch AUR `wvkbd` package ships only the phone-style `wvkbd-mobintl`
 # (no Super/Alt/Ctrl), so this helper builds the deskintl variant from the
-# upstream source tarball and installs just the binary — no sudo needed.
+# upstream source tarball. It ALSO applies the project's "hide-key" patch
+# (config/wvkbd/wvkbd-hide-key.patch): a visible ▼ collapse key on the
+# bottom row, so touch users can fold the on-screen keyboard away on the
+# lock screen, the SDDM login screen and in normal tablet use (wvkbd has no
+# built-in dismiss key).
+#
+# The patched binary is installed to TWO places:
+#   ~/.local/bin/wvkbd-deskintl         the desktop session (texp-vk)
+#   /usr/local/bin/wvkbd-deskintl       the SDDM greeter compositor
+#                                       (sddm user can't see ~/.local/bin)
 # squeekboard remains texp-vk's fallback when this is not run / fails.
 #
 # Build deps (only if missing): cairo pango wayland libxkbcommon scdoc
@@ -23,6 +33,14 @@ WIDTH="${OMARCHY_VK_HEIGHT_LANDSCAPE:-350}"
 VERSION="0.20"
 URL="https://git.sr.ht/~proycon/wvkbd/archive/v${VERSION}.tar.gz"
 BIN="${BIN_DIR:-$HOME/.local/bin}"
+SYSBIN="/usr/local/bin"
+# The hide-key patch ships in the repo (config/wvkbd/) and install.sh installs
+# it to the user data dir; dev runs from the repo fall back to the sibling path.
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/tablet-experience"
+PATCH="$DATA_DIR/wvkbd-hide-key.patch"
+if [ ! -f "$PATCH" ]; then
+  PATCH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../config/wvkbd/wvkbd-hide-key.patch"
+fi
 DRY_RUN=0
 [ "${1:-}" = "--dry-run" ] && DRY_RUN=1
 
@@ -32,10 +50,17 @@ run()  { if [ "$DRY_RUN" -eq 1 ]; then printf '    would run: %s\n' "$*"; else "
 
 [ "$DRY_RUN" -eq 1 ] && log "DRY RUN — nothing will be changed"
 
-# Already installed?
-if command -v wvkbd-deskintl >/dev/null 2>&1 || [ -x "$BIN/wvkbd-deskintl" ]; then
-  log "wvkbd-deskintl already present: $(command -v wvkbd-deskintl || echo "$BIN/wvkbd-deskintl")"
+# The patched binary carries the ▼ label (UTF-8 E2 96 BC) — cheap feature test.
+has_hide_key() { grep -l $'\xE2\x96\xBC' "$1" >/dev/null 2>&1; }
+
+# Already installed WITH the hide-key patch (in both places)? Then nothing to do.
+if [ -x "$BIN/wvkbd-deskintl" ] && has_hide_key "$BIN/wvkbd-deskintl" \
+    && [ -x "$SYSBIN/wvkbd-deskintl" ] && has_hide_key "$SYSBIN/wvkbd-deskintl"; then
+  log "wvkbd-deskintl (hide-key build) already present: $BIN + $SYSBIN"
   exit 0
+fi
+if command -v wvkbd-deskintl >/dev/null 2>&1 || [ -x "$BIN/wvkbd-deskintl" ]; then
+  warn "existing wvkbd-deskintl lacks the hide-key ▼ patch — rebuilding patched"
 fi
 
 # Build prerequisites
@@ -61,10 +86,23 @@ run curl -fsSL -o "$TMP/wvkbd.tar.gz" "$URL"
 run tar -xzf "$TMP/wvkbd.tar.gz" -C "$TMP"
 SRC="$(find "$TMP" -maxdepth 1 -type d -name 'wvkbd*' | head -1)"
 
-log "building deskintl layout (Ctrl/Super/Alt/Shift + F-keys + numbers + arrows)"
+if [ -f "$PATCH" ]; then
+  log "applying hide-key ▼ patch (config/wvkbd/wvkbd-hide-key.patch)"
+  ( cd "$SRC" && run patch -p1 < "$PATCH" )
+else
+  warn "wvkbd-hide-key.patch missing — building WITHOUT the ▼ collapse key"
+fi
+
+log "building deskintl layout (Ctrl/Super/Alt/Shift + F-keys + numbers + arrows + ▼)"
 ( cd "$SRC" && run make LAYOUT=deskintl )
 
 run mkdir -p "$BIN"
 run install -m 0755 "$SRC/wvkbd-deskintl" "$BIN/wvkbd-deskintl"
 log "installed: $BIN/wvkbd-deskintl"
+# System-wide copy for the SDDM greeter (sddm user has no access to ~/.local/bin).
+if run sudo install -m 0755 "$SRC/wvkbd-deskintl" "$SYSBIN/wvkbd-deskintl"; then
+  log "installed: $SYSBIN/wvkbd-deskintl (SDDM greeter)"
+else
+  warn "could not install $SYSBIN/wvkbd-deskintl (sudo) — the login-screen keyboard falls back to wvkbd-mobintl"
+fi
 log "texp-vk now uses wvkbd-deskintl; height is ${WIDTH}px (set OMARCHY_VK_HEIGHT_LANDSCAPE to change)"

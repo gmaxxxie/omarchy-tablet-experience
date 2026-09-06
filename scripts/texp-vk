@@ -13,8 +13,13 @@ Subcommands:
            `o.launch_on_start("texp-vk daemon")` to autostart.lua.
   toggle   Show/hide the on-screen keyboard now (used by Super+U / bar
            button / 3-finger tap). The keyboard is started on demand.
+  show     Show the keyboard now (start on demand if needed).
   hide     Hide the keyboard (used by the voice-input <-> keyboard
            exclusivity in Service.qml).
+  start-hidden  Start the keyboard backend WITHOUT changing its visibility
+           (used on tablet entry so the lock screen can show it by signal
+           later — no new Wayland client has to connect while the session
+           is already locked).
   debug    (hidden) log every touch decision to stderr for diagnostics.
 
 Keyboard backend (v1.12): primary is **wvkbd-deskintl** — wlroots-native,
@@ -232,8 +237,20 @@ def toggle_vk():
     set_visible(not vk_visible())
 
 
+def show_vk():
+    set_visible(True)
+
+
 def hide_vk():
     set_visible(False)
+
+
+def start_hidden():
+    """Pre-start the backend without showing it (lock-screen path: the
+    keyboard must already be running before the session locks, so the lock
+    can flip it visible with a signal instead of opening a new Wayland
+    client under the lock)."""
+    start_vk()
 
 
 # ---------------------------------------------------------------------------
@@ -398,7 +415,11 @@ if __name__ == "__main__":
         sys.exit(daemon())
     if cmd == "toggle":
         toggle_vk()
+    elif cmd == "show":
+        show_vk()
     elif cmd == "hide":
         hide_vk()
+    elif cmd == "start-hidden":
+        start_hidden()
     else:
         print(__doc__)

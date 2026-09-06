@@ -1,0 +1,70 @@
+# wvkbd collapse ("▼") key — hide the on-screen keyboard from a key.
+--- wvkbd-v0.20/keyboard.h	2026-07-25 05:16:05.000000000 +0800
++++ wvkbd-build/keyboard.h	2026-09-06 16:36:14.669271997 +0800
+@@ -19,6 +19,9 @@
+ 	Copy,    // Copy key, copies the unicode value specified in code (creates and
+ 	         // activates temporary keymap)
+ 	         // used for keys that are not part of the keymap
++	Hide,    // Fold the keyboard away (hide_keyboard() in main.c) — used by the
++	         // "collapse" key so touch users can dismiss the on-screen keyboard
++	         // (lock / login screens, normal tablet use)
+ 	Layout,  // Layout switch to a specific layout
+ 	BackLayer, // Layout switch to the layout that was previously active
+ 	NextLayer, // Layout switch to the next layout in the layers sequence
+--- wvkbd-v0.20/keyboard.c	2026-07-25 05:16:05.000000000 +0800
++++ wvkbd-build/keyboard.c	2026-09-06 16:36:14.680585070 +0800
+@@ -5,6 +5,9 @@
+ #include <sys/mman.h>
+ #include <ctype.h>
+ #include "keyboard.h"
++
++/* Folding the keyboard away (the "▼" collapse key) is implemented in main.c. */
++extern void hide_keyboard(void);
+ #include "drw.h"
+ #include "os-compatibility.h"
+ 
+@@ -511,6 +514,11 @@
+                     //"first layer" with other modifiers)
+         kbd_next_layer(kb, k, false);
+         break;
++    case Hide:
++        // "▼" collapse key — fold the on-screen keyboard away so it does not
++        // cover the screen (password fields, touch users).
++        hide_keyboard();
++        break;
+     case BackLayer: // triggered when "Abc" keys are pressed
+         // switch to the last active alphabetical layout
+         if (kb->last_abc_layout) {
+--- wvkbd-v0.20/main.c	2026-07-25 05:16:05.000000000 +0800
++++ wvkbd-build/main.c	2026-09-06 16:36:14.691188535 +0800
+@@ -808,6 +808,12 @@
+ }
+ 
+ void
++hide_keyboard()
++{
++    hide();
++}
++
++void
+ pipewarn()
+ {
+     fprintf(stderr, "wvkbd: cannot pipe data out.\n");
+--- wvkbd-v0.20/layout.deskintl.h	2026-07-25 05:16:05.000000000 +0800
++++ wvkbd-build/layout.deskintl.h	2026-09-06 16:36:28.647679216 +0800
+@@ -235,6 +235,7 @@
+   {"←", "←", 1.0, Code, KEY_LEFT, .scheme = 1},
+   {"↓", "↓", 1.0, Code, KEY_DOWN, .scheme = 1},
+   {"→", "→", 1.0, Code, KEY_RIGHT, .scheme = 1},
++  {"▼", "▼", 1.0, Hide, .scheme = 1},
+   /* end of layout */
+   {"", "", 0.0, Last},
+ };
+@@ -365,6 +366,7 @@
+   {"←", "←", 1.0, Code, KEY_LEFT, .scheme = 1},
+   {"↓", "↓", 1.0, Code, KEY_DOWN, .scheme = 1},
+   {"→", "→", 1.0, Code, KEY_RIGHT, .scheme = 1},
++  {"▼", "▼", 1.0, Hide, .scheme = 1},
+   /* end of layout */
+   {"", "", 0.0, Last},
+ };

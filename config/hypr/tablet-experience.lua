@@ -8,6 +8,12 @@
 --          omarchy's Bar-panel keybinds (keycode-bound); removed.
 -- v1.1: keep the tablet top-bar toggle strip (maxt-tablet-bar-strip) above
 --       the omarchy top bar so its shown-state tap reaches it.
+-- v1.17: `above_lock 2, match:namespace wvkbd` renders the virtual keyboard
+--       ABOVE the Quickshell ext-session-lock surface (the Omarchy lock
+--       screen) and keeps it interactive, so in tablet mode the lock screen
+--       can show wvkbd for password entry. The keyboard focus stays on the
+--       lock surface — exactly what the password field needs. (Hyprland
+--       layer rule `above_lock`: 2 = visible above + interactive on lock.)
 hl.config({
   gestures = {
     workspace_swipe_touch = true,
@@ -15,6 +21,7 @@ hl.config({
   },
   layerrule = {
     "zindex 3, maxt-tablet-bar-strip",
+    "above_lock 2, match:namespace wvkbd",
   },
 })
 

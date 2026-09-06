@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# ============================================================================
+# texp-sddm-vk — on-screen keyboard for the SDDM LOGIN screen (tablet mode).
+#
+# SDDM's greeter runs its own Hyprland compositor
+# (/usr/share/sddm/tablet-hyprland.lua, installed by install.sh), which
+# starts this script once at compositor start. The script decides whether
+# the login password field needs a virtual keyboard:
+#
+#   * folio keyboard ATTACHED (17ef:60fe, the same sysfs signal texp-kbdetect
+#     uses)  -> a real keyboard is available, do nothing
+#   * no touchscreen present (plain laptop/desktop) -> do nothing
+#   * keyboard detached AND a touchscreen exists (tablet mode) -> start the
+#     virtual keyboard, visible, so the touch user can type the password
+#
+# wvkbd is wlroots-native: it renders as a layer surface in the greeter
+# compositor and injects key events into the focused surface — the greeter's
+# password field. wvkbd-deskintl (with the project's ▼ hide-key patch) is
+# installed to /usr/local/bin by texp-install-wvkbd so the sddm user can use
+# it; wvkbd-mobintl is the system fallback. Both are fine for password entry
+# (letters, digits, Backspace, Enter).
+#
+# Installed to /usr/local/bin by install.sh (root); removed by uninstall.sh.
+# ============================================================================
+set -euo pipefail
+
+VENDOR="${OMARCHY_KB_VENDOR:-17ef}"
+PRODUCT="${OMARCHY_KB_PRODUCT:-60fe}"
+
+# 1. Detachable keyboard attached -> real keyboard present, no OSK needed.
+for dev in /sys/bus/usb/devices/*; do
+  [ -r "$dev/idVendor" ] || continue
+  [ "$(cat "$dev/idVendor" 2>/dev/null)" = "$VENDOR" ] || continue
+  if [ "$(cat "$dev/idProduct" 2>/dev/null)" = "$PRODUCT" ]; then
+    exit 0
+  fi
+done
+
+# 2. No touchscreen -> a plain laptop/desktop, never show the OSK.
+#    (Sysfs device names are world-readable, unlike /dev/input nodes.)
+if ! grep -riE 'touchscreen|wacom|elan.*touch' /sys/class/input/input*/name 2>/dev/null | grep -qiE '.'; then
+  exit 0
+fi
+
+# 3. Tablet mode: start the best available keyboard, VISIBLE.
+VK=""
+for bin in wvkbd-deskintl wvkbd-mobintl wvkbd squeekboard; do
+  if command -v "$bin" >/dev/null 2>&1; then
+    VK="$bin"
+    break
+  fi
+done
+[ -n "$VK" ] || exit 0
+
+case "$VK" in
+  wvkbd*) exec setsid "$VK" -H 350 -L 350 >/dev/null 2>&1 ;;
+  *)      exec setsid "$VK" >/dev/null 2>&1 ;;
+esac

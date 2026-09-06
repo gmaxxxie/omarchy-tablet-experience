@@ -65,7 +65,7 @@ import qs.Commons
 Item {
   id: root
 
-  Component.onCompleted: console.log("tablet-experience Service LOADED v1.11")
+  Component.onCompleted: console.log("tablet-experience Service LOADED v1.17")
 
   property var shell: null
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
@@ -144,6 +144,14 @@ Item {
   property bool voxtypeUp: false
   // v1.11: on-screen keyboard visibility (voice input <-> VK are exclusive).
   property bool vkVisible: false
+  // v1.17: lock-screen virtual keyboard. Hyprland renders wvkbd ABOVE the
+  // Quickshell ext-session-lock surface (`above_lock 2, match:namespace
+  // wvkbd` layerrule, installed by config/hypr/tablet-experience.lua), so
+  // in tablet mode the lock screen shows the keyboard for password entry.
+  // `locked` mirrors `omarchy-shell lock status`; `lockVkShown` remembers
+  // when WE raised it so it can be put down on unlock / laptop exit.
+  property bool locked: false
+  property bool lockVkShown: false
   property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR") || ""
   readonly property string voxtypeStateDir: root.runtimeDir + "/voxtype"
   readonly property string voxtypeStateFile: root.voxtypeStateDir + "/state"
@@ -267,6 +275,12 @@ Item {
       // Leaving tablet mode: never leave the hold-to-talk overlay or a
       // voxtype recording around (there is a real keyboard again).
       if (root.voiceInputOpen) root.hideVoiceInput()
+      // v1.17: put the lock-screen keyboard down too — a real keyboard is
+      // available again in laptop mode.
+      if (root.lockVkShown) {
+        root.lockVkShown = false
+        root.hideVk()
+      }
       // Laptop: with the keyboard docked the panel is always used
       // face-up, so the display always returns to the default 0°
       // landscape. Silent (the mode OSD above already tells the user).
@@ -282,6 +296,9 @@ Item {
     // only when the user asks for it explicitly (popup Auto / ⟲⟳ /
     // setRotation), and the "auto" preset keeps following the sensor posture
     // when it is already enabled.
+    // v1.17: pre-start the virtual keyboard (hidden) so the lock screen can
+    // raise it instantly by signal.
+    root.preStartVk()
   }
 
   // Phase 6 — posture via texp-orient (sysfs accel, zero deps). Same
@@ -396,6 +413,7 @@ Item {
       root.pollTransform()  // laptop-reset latch (restart edge)
       root.pollVoxtype()    // v1.5 voice-input state (voxtypeUp / recording)
       root.pollVk()         // v1.11 VK visibility (voice <-> VK exclusivity)
+      root.pollLock()       // v1.17 lock-screen VK (show on lock in tablet)
       root.syncTabletLayout()  // v1.2: tablet/laptop bar declutter, self-healing
     }
   }
@@ -412,6 +430,9 @@ Item {
     triggeredOnStart: true
     onTriggered: {
       root.syncTabletLayout()
+      // v1.17: if we came up already in tablet mode, pre-start the keyboard
+      // (hidden) so a lock can raise it instantly by signal.
+      if (root.isTabletMode) root.preStartVk()
       // Laptop must sit at the default angle even right after a restart with
       // the display still rotated (requirement: choosing laptop always resets).
       if (!root.isTabletMode && root.liveTransform !== 0 && !rotateProcess.running) {
@@ -505,6 +526,44 @@ Item {
     vkCmd.running = true
   }
 
+  // v1.17: raise the (pre-started) keyboard — the lock screen, tablet mode.
+  function showVk() {
+    vkCmd.command = ["texp-vk", "show"]
+    vkCmd.running = true
+  }
+
+  // v1.17: pre-start the keyboard HIDDEN on tablet entry, so the lock can
+  // flip it visible with a signal — no new Wayland client has to connect
+  // while the session is already locked (ext-session-lock hides non-lock
+  // clients, and connecting under a lock is the flaky corner).
+  function preStartVk() {
+    vkCmd.command = ["texp-vk", "start-hidden"]
+    vkCmd.running = true
+  }
+
+  // v1.17: lock-state mirror. Locked + tablet -> show the on-screen
+  // keyboard for the password field; unlocked -> put it back down (it stays
+  // pre-started hidden for the next lock). Laptop mode keeps a real
+  // keyboard, so nothing shows there.
+  function onLockState(next) {
+    var changed = next !== root.locked
+    root.locked = next
+    if (!changed) return
+    if (next) {
+      if (root.isTabletMode && !root.vkVisible) {
+        root.lockVkShown = true
+        root.showVk()
+      }
+    } else if (root.lockVkShown) {
+      root.lockVkShown = false
+      root.hideVk()
+    }
+  }
+
+  function pollLock() {
+    if (!lockProbe.running) lockProbe.running = true
+  }
+
   // Track keyboard visibility (bar button, SUPER+U and the 3-finger tap all
   // route through texp-vk, which mirrors state to
   // ~/.local/state/texp-vk/visible). If the keyboard comes up while voice
@@ -544,6 +603,24 @@ Item {
     id: vkProbe
     command: ["bash", "-c", "cat \"$HOME/.local/state/texp-vk/visible\" 2>/dev/null; echo; true"]
     onStreamFinished: root.onVkState(String(output || "").trim())
+  }
+
+  // v1.17: lock-screen VK. `omarchy-shell lock status` is the lock plugin's
+  // own authoritative JSON (locked = lockRequested || sessionLocked ||
+  // secure). The shell process keeps answering IPC while the session is
+  // locked — it IS the ext-session-lock client — so this poll keeps working
+  // under a lock. Note: `-q` suppresses ALL output, so it is NOT used here.
+  BoundedProcess {
+    id: lockProbe
+    command: ["omarchy-shell", "lock", "status"]
+    onStreamFinished: {
+      var locked = false
+      try {
+        var d = JSON.parse(output || "{}")
+        locked = !!(d && d.locked)
+      } catch (e) {}
+      root.onLockState(locked)
+    }
   }
 
   // ------------------------------------------------- tablet-mode bar toggle
@@ -1203,6 +1280,8 @@ Item {
         voiceInputOpen: root.voiceInputOpen,
         voiceRecording: root.recording,
         voxtypeUp: root.voxtypeUp,
+        locked: root.locked,
+        lockVkShown: root.lockVkShown,
         tabletLayoutActive: root.tabletLayoutActive,
         overflowWidgets: root.overflowItems.map(function(i) { return i.id })
       })

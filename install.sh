@@ -13,6 +13,11 @@
 #   1. helper daemons -> ~/.local/bin/texp-{vk,rotate,orient,kbdetect,touch,close,window,bar-probe}
 #   2. Hyprland hooks  -> touch workspace swipe, SUPER+U (VK), SUPER+SHIFT+U (mode
 #                        toggle), SUPER+SHIFT+R (rotation cycle) in hyprland.lua
+#                        + above_lock layerrule so the VK renders on the LOCK screen
+#   2c. login-screen VK -> SDDM greeter runs its own Hyprland; a derived
+#                        compositor config (/usr/share/sddm/tablet-hyprland.lua)
+#                        + /usr/local/bin/texp-sddm-vk start wvkbd on the login
+#                        screen in tablet mode (sddm drop-in 100-tablet.conf)
 #   2b. squeekboard layout -> number row for Chinese candidate selection
 #                        (config/squeekboard/*.yaml -> ~/.local/share/squeekboard)
 #                        + GNOME input-sources GSettings so squeekboard resolves "us"
@@ -95,6 +100,31 @@ if [ "$VERIFY" -eq 1 ]; then
   grep -qF 'o.launch_on_start("texp-vk daemon")' "$HYPR_DIR/autostart.lua" 2>/dev/null \
     && bad "autostart: texp-vk daemon hook present (bottom-swipe gesture is off by default) — remove the line or re-run install.sh" \
     || ok "autostart: no texp-vk daemon hook (bottom-swipe gesture disabled)"
+
+  # lock-screen VK layerrule (v1.17): wvkbd renders above the Quickshell lock
+  grep -qF 'above_lock 2, match:namespace wvkbd' "$HYPR_DIR/tablet-experience.lua" 2>/dev/null \
+    && ok "lock-screen VK layerrule (above_lock 2, wvkbd)" \
+    || bad "lock-screen VK layerrule missing — re-run install.sh"
+
+  # login-screen VK (v1.17): derived greeter compositor + gate + sddm drop-in
+  if [ -f /usr/share/sddm/tablet-hyprland.lua ] \
+      && cmp -s /usr/share/sddm/tablet-hyprland.lua "$REPO_ROOT/config/sddm/tablet-hyprland.lua"; then
+    ok "SDDM greeter compositor config: tablet-hyprland.lua"
+  else
+    bad "SDDM greeter compositor config missing/different — re-run install.sh (sudo needed)"
+  fi
+  if [ -x /usr/local/bin/texp-sddm-vk ] \
+      && cmp -s /usr/local/bin/texp-sddm-vk "$REPO_ROOT/scripts/texp-sddm-vk"; then
+    ok "/usr/local/bin/texp-sddm-vk (login-screen VK gate)"
+  else
+    bad "/usr/local/bin/texp-sddm-vk missing/different — re-run install.sh (sudo needed)"
+  fi
+  if [ -f /etc/sddm.conf.d/100-tablet.conf ] \
+      && grep -qF 'tablet-hyprland.lua' /etc/sddm.conf.d/100-tablet.conf; then
+    ok "sddm drop-in 100-tablet.conf (greeter compositor -> tablet-hyprland.lua)"
+  else
+    bad "sddm drop-in 100-tablet.conf missing — re-run install.sh (sudo needed)"
+  fi
 
   # plugin enabled by omarchy
   if omarchy plugin list --json 2>/dev/null | grep -q '"maxt.tablet-experience"'; then
@@ -188,11 +218,22 @@ if [ "$VERIFY" -eq 1 ]; then
       *) bad "squeekboard panel scale not 1.35 — re-run install.sh" ;;
     esac
   fi
-  # wvkbd-deskintl (v1.12) — primary keyboard with Ctrl/Super/Alt/Shift
-  if command -v wvkbd-deskintl >/dev/null 2>&1 || [ -x "$BIN_DIR/wvkbd-deskintl" ]; then
-    ok "wvkbd-deskintl present (modifier keys for AI-terminal shortcuts)"
+  # wvkbd-deskintl (v1.12) — primary keyboard with Ctrl/Super/Alt/Shift. The
+  # patched build (v1.17) also carries the visible ▼ collapse key and is
+  # mirrored to /usr/local/bin for the SDDM greeter. Feature-test = the ▼
+  # label bytes (E2 96 BC) present in the binary.
+  if [ -x "$BIN_DIR/wvkbd-deskintl" ] \
+      && grep -l $'\xE2\x96\xBC' "$BIN_DIR/wvkbd-deskintl" >/dev/null 2>&1 \
+      && [ -x /usr/local/bin/wvkbd-deskintl ] \
+      && grep -l $'\xE2\x96\xBC' /usr/local/bin/wvkbd-deskintl >/dev/null 2>&1; then
+    ok "wvkbd-deskintl present with ▼ hide-key (user + greeter copies)"
   else
-    warn "wvkbd-deskintl missing — run $BIN_DIR/texp-install-wvkbd (squeekboard fallback stays)"
+    warn "wvkbd-deskintl hide-key build missing — run $BIN_DIR/texp-install-wvkbd (squeekboard fallback stays)"
+  fi
+  if [ -f "${XDG_DATA_HOME:-$HOME/.local/share}/tablet-experience/wvkbd-hide-key.patch" ]; then
+    ok "wvkbd-hide-key.patch in data dir (build helper can find it)"
+  else
+    bad "wvkbd-hide-key.patch missing from data dir — re-run install.sh"
   fi
 
   # voxtype post-processing (texp-vtext — tech-term replacement, v1.13)
@@ -398,6 +439,43 @@ else
 fi
 append_if_missing "$HYPR_DIR/hyprland.lua" 'require("hypr.tablet-experience")'
 
+# ------------------------------------------- login-screen VK (v1.17)
+# Tablet mode on the LOGIN screen: SDDM's greeter runs its own Hyprland
+# compositor, so the virtual keyboard is started INSIDE it. We ship a derived
+# greeter compositor config (stock omarchy settings + a one-shot exec that
+# starts wvkbd when the folio keyboard is detached) and point SDDM at it via
+# a late /etc/sddm.conf.d drop-in (100- sorts after omarchy's 99-, so it
+# wins). SDDM's own `InputMethod=qtvirtualkeyboard` does NOT work here: the
+# greeter is Wayland and sddm 0.21 disables it there on purpose.
+log "wiring login-screen virtual keyboard (SDDM greeter, tablet mode)"
+SDDM_HYPR_CONF=/usr/share/sddm/tablet-hyprland.lua
+if [ -f "$REPO_ROOT/config/sddm/tablet-hyprland.lua" ]; then
+  if [ -e "$SDDM_HYPR_CONF" ] && ! cmp -s "$SDDM_HYPR_CONF" "$REPO_ROOT/config/sddm/tablet-hyprland.lua"; then
+    warn "backing up existing $SDDM_HYPR_CONF (differs from repo copy)"
+    run sudo cp -a "$SDDM_HYPR_CONF" "$SDDM_HYPR_CONF.bak.$(date +%Y%m%d%H%M%S)"
+  fi
+  run sudo install -m 0644 "$REPO_ROOT/config/sddm/tablet-hyprland.lua" "$SDDM_HYPR_CONF"
+  log "install: $SDDM_HYPR_CONF"
+else
+  warn "config/sddm/tablet-hyprland.lua missing from repo — skipping"
+fi
+run sudo install -m 0755 "$REPO_ROOT/scripts/texp-sddm-vk" /usr/local/bin/texp-sddm-vk
+log "install: /usr/local/bin/texp-sddm-vk"
+SDDM_DROPIN=/etc/sddm.conf.d/100-tablet.conf
+SDDM_DROPIN_CONTENT="[Wayland]
+CompositorCommand=start-hyprland -- --config /usr/share/sddm/tablet-hyprland.lua
+"
+if [ -f "$SDDM_DROPIN" ] && grep -qF 'tablet-hyprland.lua' "$SDDM_DROPIN"; then
+  log "sddm drop-in already present: $SDDM_DROPIN"
+else
+  if [ -e "$SDDM_DROPIN" ]; then
+    warn "backing up existing $SDDM_DROPIN (differs from ours)"
+    run sudo cp -a "$SDDM_DROPIN" "$SDDM_DROPIN.bak.$(date +%Y%m%d%H%M%S)"
+  fi
+  run sh -c 'printf "%s\n" "$1" | sudo tee "$2" >/dev/null' _ "$SDDM_DROPIN_CONTENT" "$SDDM_DROPIN"
+  log "install: $SDDM_DROPIN"
+fi
+
 # ------------------------------------------- squeekboard layout (v1.7)
 # Give the virtual keyboard a number row for Chinese IME candidate
 # selection (fcitx5/Rime picks candidates with the digit keys). squeekboard
@@ -444,7 +522,19 @@ run pkill -x squeekboard 2>/dev/null || true
 # squeekboard lacks (needed for AI-terminal shortcuts on Omarchy). texp-vk now
 # controls wvkbd-deskintl (signals + a state file the shell polls) and falls
 # back to squeekboard when wvkbd-deskintl is absent. Build it best-effort;
-# failure leaves the squeekboard path intact.
+# failure leaves the squeekboard path intact. The build ALSO applies the
+# hide-key ▼ patch (v1.17) so the on-screen keyboard can be folded away with
+# a visible key, and mirrors the patched binary to /usr/local/bin for the
+# SDDM greeter (texp-install-wvkbd).
+# Ship the patch to the user data dir where the installed helper looks for it.
+run mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/tablet-experience"
+if [ -f "$REPO_ROOT/config/wvkbd/wvkbd-hide-key.patch" ]; then
+  run install -m 0644 "$REPO_ROOT/config/wvkbd/wvkbd-hide-key.patch" \
+    "${XDG_DATA_HOME:-$HOME/.local/share}/tablet-experience/wvkbd-hide-key.patch"
+  log "install: wvkbd-hide-key.patch -> ${XDG_DATA_HOME:-$HOME/.local/share}/tablet-experience/"
+else
+  warn "config/wvkbd/wvkbd-hide-key.patch missing — building wvkbd without the ▼ collapse key"
+fi
 if [ -x "$BIN_DIR/texp-install-wvkbd" ]; then
   log "installing wvkbd-deskintl (best-effort; squeekboard stays as fallback)"
   run "$BIN_DIR/texp-install-wvkbd" || warn "wvkbd-deskintl build skipped — squeekboard fallback remains"
@@ -511,6 +601,14 @@ Next steps:
      attach -> laptop, detach -> tablet (disable with setAutoSwitch off).
   4. Input-method quick switch + top-bar tap toggle: available in tablet mode
      (bar buttons; tap the top edge to show/hide the top bar).
+
+  Lock-screen VK (v1.17): in tablet mode the virtual keyboard now appears on
+  the Omarchy lock screen for password entry and hides on unlock (Hyprland
+  above_lock layerrule + the service polling `omarchy-shell lock status`).
+  Login-screen VK: the SDDM greeter now starts wvkbd when the folio keyboard
+  is detached (derived compositor config + /usr/local/bin/texp-sddm-vk).
+  Both take effect after a re-login/reboot; the lock-screen one also needs
+  the new Service.qml loaded (re-login or omarchy restart shell).
 
   Input-device access: a udev rule (/etc/udev/rules.d/99-tablet-experience-input.rules)
   tagged /dev/input/event* with uaccess and you were added to group 'input',
