@@ -65,7 +65,7 @@ import qs.Commons
 Item {
   id: root
 
-  Component.onCompleted: console.log("tablet-experience Service LOADED v1.17")
+  Component.onCompleted: console.log("tablet-experience Service LOADED v1.18")
 
   property var shell: null
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")

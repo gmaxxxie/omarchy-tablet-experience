@@ -40,7 +40,8 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   keyboard for touch typing (rendered above the lock via Hyprland's
   `above_lock` layer rule; auto-shows on lock in tablet AND laptop mode;
   collapses with the keyboard's ▼ key; hides on unlock). The bar's keyboard
-  toggle icon also now works in both modes. The **SDDM login screen** shows
+  toggle icon stays tablet-only (laptop mode has the physical keyboard
+  docked — v1.18 reverted v1.17's both-modes bar button). The **SDDM login screen** shows
   the keyboard too: the greeter runs its own Hyprland, so a derived
   compositor config starts it when the folio keyboard is detached and a
   touchscreen is present. The project's wvkbd-deskintl build carries a

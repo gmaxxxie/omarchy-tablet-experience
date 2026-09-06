@@ -9,10 +9,10 @@ import qs.Ui
 // (show/hide squeekboard, live state highlight), a voice-input icon (v1.5,
 // voxtype hold-to-talk overlay), a dedicated window-manage icon (v1.8,
 // close / move-to-workspace popup) plus the ⋮ overflow popup.
-// The IM switch and the voice-input icon are TABLET-MODE ONLY (in laptop
-// mode the physical keyboard is docked); the KEYBOARD icon and the mode
-// button are available in BOTH modes (v1.17: the virtual keyboard button is
-// one tap away even in laptop mode, e.g. to type on the touchscreen).
+// The IM switch, the voice-input icon and the KEYBOARD icon are
+// TABLET-MODE ONLY (in laptop mode the physical keyboard is docked — v1.18
+// reverted v1.17's both-modes keyboard button on user direction); the mode
+// button is available in BOTH modes.
 //
 // The buttons are always mounted so there is always an entry point: laptop
 // mode shows the mode label and the popup only offers Laptop/Tablet;
@@ -126,13 +126,14 @@ Panel {
       }
     }
 
-    // Virtual keyboard show/hide — BOTH MODES since v1.17 (one tap, same
-    // texp-vk path as SUPER+U / the bottom-edge up-swipe; live state
-    // highlight).
+    // Virtual keyboard show/hide — TABLET MODE ONLY (v1.18: laptop mode has
+    // the physical keyboard docked, so no top-bar entry; SUPER+U / the
+    // bottom-edge up-swipe still work in both modes). Same texp-vk path as
+    // those, with a live state highlight.
     WidgetButton {
       id: vkButton
       bar: root.bar
-      visible: true
+      visible: root.tablet
       text: "\uF11C"            // fa-keyboard (glyph covered by the bar font, verified)
       active: root.vkVisible
       tooltipText: root.vkVisible
@@ -558,7 +559,7 @@ Panel {
   Timer {
     id: vkRefreshTimer
     interval: 1500
-    running: true         // v1.17: icon now shows in BOTH modes
+    running: root.tablet         // icon hidden in laptop mode — nothing to poll
     repeat: true
     triggeredOnStart: true
     onTriggered: {
