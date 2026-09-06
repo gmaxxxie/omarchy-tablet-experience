@@ -404,6 +404,7 @@ Panel {
         width: parent.width
         height: Style.space(24)
       }
+      }
     }
   }
 
