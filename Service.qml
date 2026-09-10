@@ -65,7 +65,7 @@ import qs.Commons
 Item {
   id: root
 
-  Component.onCompleted: console.log("tablet-experience Service LOADED v1.19")
+  Component.onCompleted: console.log("tablet-experience Service LOADED v1.20")
 
   property var shell: null
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
@@ -98,7 +98,16 @@ Item {
   // active; bar.layout = the pared layout). The mirror below is kept for the
   // widget/IPC and refreshed from the live config; overflowItems = hidden
   // widgets (snapshot minus current layout).
+  //
+  // v1.20 config source: omarchy 4.0.3 hands third-party services a
+  // capability-scoped shell (no shellConfig; mutateShellConfig()=false), which
+  // silently killed every root.shell.shellConfig read/write below — the tablet
+  // declutter froze and the ⋮ "Extra bar icons" show/hide list never rendered.
+  // The plugin now mirrors the host's effective config via `omarchy-shell shell
+  // listShellConfig` (configCache) and persists mutations by atomically writing
+  // shell.json + `reloadConfig` (the same pattern as omarchy's own `commit()`).
   property bool tabletLayoutActive: false
+  property var configCache: null
   property var overflowItems: []
   property var tabletLayoutSnapshot: null
   // Set after the user chooses "restore all bar icons" while still in tablet:
@@ -277,8 +286,11 @@ Item {
   function applyNext() {
     root.restoreHeld = false
     osd("tablet", isTabletMode ? "Tablet mode" : "Laptop mode")
-    // v1.2: tablet = simplified bar, laptop = default full bar.
-    root.syncTabletLayout()
+    // v1.2: tablet = simplified bar, laptop = default full bar. The layout
+    // write is async through the v1.20 config bridge (configCache + atomic
+    // shell.json write); ensureConfig lands the fresh config and
+    // syncTabletLayout() applies the pared/restored layout from it.
+    root.ensureConfig()
     if (!isTabletMode) {
       // Leaving tablet mode: never leave the hold-to-talk overlay or a
       // voxtype recording around (there is a real keyboard again).
@@ -426,7 +438,7 @@ Item {
       root.pollVoxtype()    // v1.5 voice-input state (voxtypeUp / recording)
       root.pollVk()         // v1.11 VK visibility (voice <-> VK exclusivity)
       root.pollLock()       // v1.17 lock-screen VK (show on lock in tablet)
-      root.syncTabletLayout()  // v1.2: tablet/laptop bar declutter, self-healing
+      root.ensureConfig()   // v1.2 declutter — v1.20: refreshed via config bridge
     }
   }
 
@@ -441,7 +453,7 @@ Item {
     repeat: false
     triggeredOnStart: true
     onTriggered: {
-      root.syncTabletLayout()
+      root.ensureConfig()
       // v1.17: pre-start the keyboard (hidden) on load — a lock in ANY mode
       // can then raise it instantly by signal (no new Wayland client has to
       // connect under a lock).
@@ -1126,14 +1138,14 @@ Item {
 
   // Current bar layout from the live shell config.
   function currentLayout() {
-    var cfg = root.shell ? root.shell.shellConfig : null
+    var cfg = root.configCache
     if (!cfg || !cfg.bar || !cfg.bar.layout) return null
     return root.copyLayout(cfg.bar.layout)
   }
 
   // The stored pre-tablet layout (present while tablet declutter is active).
   function snapshotLayout() {
-    var cfg = root.shell ? root.shell.shellConfig : null
+    var cfg = root.configCache
     if (!cfg || !cfg.bar || !cfg.bar.layoutSnapshot) return null
     return root.copyLayout(cfg.bar.layoutSnapshot)
   }
@@ -1153,35 +1165,108 @@ Item {
     return out
   }
 
-  function mutateBarLayout(mutator) {
-    if (!root.shell || typeof root.shell.mutateShellConfig !== "function") return
-    root.shell.mutateShellConfig(mutator)
+  // ---- shell-config bridge (v1.20) --------------------------------
+  // omarchy 4.0.3 hands third-party services a capability-scoped shell that
+  // has no `shellConfig` and whose `mutateShellConfig()` returns false, so the
+  // old root.shell.shellConfig reads below all resolved to undefined and every
+  // bar-layout mutation silently no-oped: the tablet declutter froze and the
+  // ⋮ "Extra bar icons" show/hide list never rendered (tabletLayoutActive=false,
+  // overflowItems=[]). The bridge mirrors the host's EFFECTIVE config via
+  // `omarchy-shell shell listShellConfig` and persists mutations by atomically
+  // writing shell.json + `reloadConfig` — the same pattern as omarchy's own
+  // `commit()` helper. State still lives inside shell.json (bar.layoutSnapshot),
+  // so shell restarts keep recovering the original layout.
+  property var pendingMutations: []
+  property bool configDirty: false
+
+  // Idempotent fetch kick — pollers call this every tick; a fetch already in
+  // flight is not re-spawned. The parsed result lands in configCache and is
+  // reconciled by syncTabletLayout()/refreshOverflow() in onStreamFinished.
+  function ensureConfig() {
+    if (!configFetch.running) configFetch.running = true
   }
 
-  // Shell config writes are ignored while the call is inside an IPC handler
-  // (re-entrancy guard), and can also race a plugin reload. Run every layout
-  // mutation on a plain event-loop turn through this FIFO instead — the same
-  // code path the working mode-transition calls use.
-  property var pendingMutations: []
+  BoundedProcess {
+    id: configFetch
+    command: ["omarchy-shell", "shell", "listShellConfig"]
+    onStreamFinished: {
+      // A fetch that predates a pending mutation carries the PRE-mutation
+      // config — never let it clobber the mirror; the post-save refetch
+      // (configSave.onStreamFinished) reconciles the real state.
+      if (root.configDirty) return
+      var parsed = null
+      try { parsed = JSON.parse(output || "") } catch (e) { parsed = null }
+      if (!parsed || typeof parsed !== "object") return   // shell busy — retry next poll
+      root.configCache = parsed
+      root.syncTabletLayout()     // self-heal: pare/restore/refresh from reality
+      root.refreshOverflow()
+    }
+  }
+
+  // Mutations apply to the local mirror immediately and are persisted as ONE
+  // atomic write once the queue drains (fewer shell reloads than one write per
+  // action — the host re-instantiates plugin services on every shell.json
+  // change, and a lost instance would lose the rest of the queue).
   function deferBarMutation(mutator) {
+    if (!root.configCache) { root.ensureConfig(); return }  // no mirror yet — poll reconciles
     root.pendingMutations.push(mutator)
     if (!mutationTimer.running) mutationTimer.start()
   }
+
   Timer {
     id: mutationTimer
     interval: 60
     repeat: true
     onTriggered: {
-      if (root.pendingMutations.length === 0) { mutationTimer.stop(); return }
-      root.mutateBarLayout(root.pendingMutations.shift())
+      if (root.pendingMutations.length === 0) {
+        if (root.configDirty) root.startConfigSave()
+        else mutationTimer.stop()
+        return
+      }
+      var m = root.pendingMutations.shift()
+      if (root.configCache && typeof m === "function") {
+        m(root.configCache)
+        root.configDirty = true
+      }
     }
+  }
+
+  // Serialize the mirror (version 1, every key preserved) and write it
+  // atomically — FileView.atomicWrites performs the temp+rename that omarchy's
+  // `commit` helper does with mktemp+mv.
+  function startConfigSave() {
+    if (!root.configCache || root.configDirty === false) return
+    root.configDirty = false
+    var payload = JSON.parse(JSON.stringify(root.configCache))
+    payload.version = 1
+    configOut.setText(JSON.stringify(payload, null, 2) + "\n")
+  }
+
+  FileView {
+    id: configOut
+    path: root.home + "/.config/omarchy/shell.json"
+    atomicWrites: true
+    watchChanges: false       // we never read our own writes back
+    printErrors: false
+    onSaved: {
+      console.log("MAXT-CONFIG-SAVED")
+      // The host's own FileView watches this path and reloads it; an explicit
+      // reloadConfig makes the pick-up deterministic, then we re-fetch.
+      if (!configSave.running) configSave.running = true
+    }
+  }
+
+  BoundedProcess {
+    id: configSave
+    command: ["omarchy-shell", "shell", "reloadConfig"]
+    onStreamFinished: root.ensureConfig()
   }
 
   // Enter tablet: capture the current (full) layout as bar.layoutSnapshot and
   // replace bar.layout with the pared version — ONE atomic config write, so a
   // shell reload in between can never lose the original.
   function applyTabletLayout() {
-    var cfg = root.shell ? root.shell.shellConfig : null
+    var cfg = root.configCache
     if (!cfg || !cfg.bar) return
     if (cfg.bar.layoutSnapshot) {
       root.refreshOverflow()
@@ -1200,7 +1285,7 @@ Item {
   // Leave tablet: restore the verbatim pre-tablet layout and drop the
   // snapshot in the same atomic write.
   function restoreOriginalLayout() {
-    var cfg = root.shell ? root.shell.shellConfig : null
+    var cfg = root.configCache
     if (!cfg || !cfg.bar || !cfg.bar.layoutSnapshot) return
     var snap = root.snapshotLayout()
     root.deferBarMutation(function(config) {
@@ -1219,7 +1304,7 @@ Item {
   // Mount one hidden widget back at its original position (the snapshot stays,
   // so a later laptop restore reproduces the original layout exactly).
   function bringBackBarWidget(id) {
-    var cfg = root.shell ? root.shell.shellConfig : null
+    var cfg = root.configCache
     if (!cfg || !cfg.bar || !cfg.bar.layoutSnapshot) return
     var snap = cfg.bar.layoutSnapshot
     var regions = ["left", "center", "right"]
@@ -1277,7 +1362,7 @@ Item {
 
   // Unmount one non-essential widget (off switch). The snapshot stays intact.
   function hideBarWidget(id) {
-    var cfg = root.shell ? root.shell.shellConfig : null
+    var cfg = root.configCache
     if (!cfg || !cfg.bar || !cfg.bar.layout || !cfg.bar.layoutSnapshot) return
     root.deferBarMutation(function(config) {
       var regions = ["left", "center", "right"]
@@ -1297,7 +1382,7 @@ Item {
   // Show EVERY hidden non-essential widget (the full original bar, still in
   // tablet mode). The snapshot stays put so Hide all works instantly again.
   function showAllBarIcons() {
-    var cfg = root.shell ? root.shell.shellConfig : null
+    var cfg = root.configCache
     if (!cfg || !cfg.bar || !cfg.bar.layoutSnapshot) return
     var snap = root.copyLayout(cfg.bar.layoutSnapshot)
     if (!snap) return
@@ -1309,7 +1394,7 @@ Item {
 
   // Hide all non-essential widgets again (re-apply the pared layout).
   function hideAllBarIcons() {
-    var cfg = root.shell ? root.shell.shellConfig : null
+    var cfg = root.configCache
     if (!cfg || !cfg.bar || !cfg.bar.layoutSnapshot) return
     var snap = root.copyLayout(cfg.bar.layoutSnapshot)
     if (!snap) return
@@ -1323,7 +1408,7 @@ Item {
   // Called from mode transitions, the load-time settle, and the periodic
   // poll (self-healing against external shell.json edits / reloads).
   function syncTabletLayout() {
-    var cfg = root.shell ? root.shell.shellConfig : null
+    var cfg = root.configCache
     var hasSnapshot = !!(cfg && cfg.bar && cfg.bar.layoutSnapshot)
     root.tabletLayoutActive = hasSnapshot
     if (root.isTabletMode) {
@@ -1375,7 +1460,10 @@ Item {
   Timer {
     id: refreshTimer
     interval: 400
-    onTriggered: root.refreshOverflow()
+    onTriggered: {
+      root.ensureConfig()
+      root.refreshOverflow()
+    }
   }
 
   Timer {
