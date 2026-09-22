@@ -470,7 +470,7 @@ HELPER=/usr/local/libexec/tablet-experience/texp-priv-install
 # O_NOFOLLOW and verified against the reviewed digest INSIDE the root
 # process, so even the bootstrap is race-proof. Keep BOOTSTRAP_HELPER_SHA256
 # in sync with `sha256sum scripts/texp-priv-install`.
-BOOTSTRAP_HELPER_SHA256="1064c655b2962b3922947aaf86e979c8f99ac7cc4eba62651c10fe46f3247007"
+BOOTSTRAP_HELPER_SHA256="e87284951935c3cafa6288e9bb756c80c0b8dbdede083414b3073b9c481e2725"
 if [ ! -x "$HELPER" ] || ! cmp -s "$HELPER" "$REPO_ROOT/scripts/texp-priv-install"; then
   if [ "$DRY_RUN" -eq 1 ]; then
     printf '    would run: sudo python3 bootstrap %s (digest-checked)\n' "$HELPER"
@@ -480,17 +480,26 @@ if [ ! -x "$HELPER" ] || ! cmp -s "$HELPER" "$REPO_ROOT/scripts/texp-priv-instal
 import hashlib, os, stat, sys
 src = sys.argv[1]
 expected = "$BOOTSTRAP_HELPER_SHA256"
-fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
+max_bytes = 64 * 1024   # reviewed maximum for the verifier source (~19 KB)
+fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
 try:
     st = os.fstat(fd)
     if not stat.S_ISREG(st.st_mode):
         sys.exit(f"texp-priv-install bootstrap: source is not a regular file: {src}")
+    size = st.st_size
+    if size > max_bytes:
+        sys.exit(f"texp-priv-install bootstrap: source exceeds the reviewed maximum ({size} > {max_bytes} bytes): {src}")
     data = b""
-    while True:
-        chunk = os.read(fd, 65536)
+    while len(data) <= size:   # read at most size+1 bytes
+        chunk = os.read(fd, min(65536, size + 1 - len(data)))
         if not chunk:
             break
         data += chunk
+    if len(data) > size:
+        sys.exit(f"texp-priv-install bootstrap: source grew during the read: {src}")
+    after = os.fstat(fd)
+    if (after.st_size, after.st_ino, after.st_dev) != (size, st.st_ino, st.st_dev):
+        sys.exit(f"texp-priv-install bootstrap: source changed during the read: {src}")
 finally:
     os.close(fd)
 actual = hashlib.sha256(data).hexdigest()

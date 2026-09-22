@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "maxt.tablet-experience",
   "name": "Tablet Experience",
-  "version": "1.22.0",
+  "version": "1.23.0",
   "author": "maxt",
   "license": "MIT",
   "description": "Laptop/Tablet mode for detachable 2-in-1s: sensor-following rotation (auto + explicit fixed angles), virtual-keyboard toggle (SUPER+U / bar button / 3-finger tap) on the desktop and lock/login screens with a visible ▼ collapse key, input-method quick switch (EN/中), voice input, laptop display reset, a simplified tablet bar with per-icon toggles, and a tablet window-manage popup.",

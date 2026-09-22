@@ -14,16 +14,25 @@
 # immutable: a non-root process cannot change the digests, so root only ever
 # installs the exact reviewed bytes.
 #
-#   * every source is opened with O_NOFOLLOW and must be a regular file;
-#   * the exact opened bytes are hashed and must equal the immutable expected
-#     digest — any mismatch aborts BEFORE anything is written;
+#   * every source is opened with O_NOFOLLOW (and O_NONBLOCK, so a malicious
+#     FIFO can never wedge the root process) and must be a regular file;
+#   * the exact opened bytes are read under a HARD BYTE BOUND: the expected
+#     size comes from fstat(), unexpected sizes are rejected, at most size+1
+#     bytes are read, and the size/identity is re-checked after the read — a
+#     same-UID writer can never make this root process accumulate unbounded
+#     memory nor slip bytes past the digest;
+#   * the bytes must equal the immutable expected digest — any mismatch aborts
+#     BEFORE anything is written;
 #   * the verified bytes are copied into a root-owned staging file, the staged
 #     bytes are re-verified, the destination is replaced atomically
 #     (os.replace), then the installed bytes are re-verified;
-#   * the wvkbd-deskintl build runs entirely inside a root-owned directory
-#     (download of the digest-pinned source archive, apply of the digest-
-#     pinned hide-key patch, build, install) so the FINAL artifact — not just
-#     its source archive — is bound to root and installed from root-owned
+#   * the wvkbd-deskintl build runs entirely inside a root-owned directory:
+#     the source archive is streamed through a producer-enforced byte counter
+#     (terminated immediately at 10 MiB even for chunked/unknown-length
+#     responses — curl's --max-filesize alone cannot bound those), then the
+#     pinned SHA-256 is checked before extraction, the digest-pinned hide-key
+#     patch is applied, and the build runs — so the FINAL artifact, not just
+#     its source archive, is bound to root and installed from root-owned
 #     bytes with the installed bytes re-verified against the built ones.
 #
 # USAGE (run via sudo; the verify*/check subcommands also run unprivileged):
@@ -127,10 +136,19 @@ def dest_for(path):
 
 def read_verified(path, expected_sha, what, limit=MAX_PAYLOAD):
     """Open with O_NOFOLLOW, require a regular file, hash the EXACT opened
-    bytes. Returns (bytes, hexdigest). Any mismatch or non-regular file
-    aborts — nothing is ever written from unverified bytes."""
+    bytes under a hard byte bound. Returns (bytes, hexdigest). Any mismatch,
+    non-regular file, oversized file, or concurrent change aborts — nothing
+    is ever written from unverified bytes.
+
+    Bound discipline (security re-review v1.23.0): the source may be a
+    user-owned file, and a same-UID process can keep extending it while this
+    root process reads. So the expected size comes from fstat() (unexpected
+    sizes are rejected outright), at most size+1 bytes are ever read, and the
+    size/identity is re-checked after the read — a concurrent append/truncate
+    cannot make the root process accumulate without bound nor slip past the
+    digest check."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
         die(f"{what}: not found: {path}")
     except OSError as exc:
@@ -139,14 +157,20 @@ def read_verified(path, expected_sha, what, limit=MAX_PAYLOAD):
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode):
             die(f"{what}: not a regular file (refusing): {path}")
+        size = st.st_size
+        if size > limit:
+            die(f"{what}: exceeds the reviewed maximum of {limit} bytes: {path} ({size} bytes)")
         data = b""
-        while True:
-            chunk = os.read(fd, 65536)
+        while len(data) <= size:  # read at most size+1 bytes
+            chunk = os.read(fd, min(65536, size + 1 - len(data)))
             if not chunk:
                 break
             data += chunk
-            if len(data) > limit:
-                die(f"{what}: unexpectedly large: {path}")
+        if len(data) > size:
+            die(f"{what}: grew while being read — refusing: {path}")
+        after = os.fstat(fd)
+        if (after.st_size, after.st_ino, after.st_dev) != (size, st.st_ino, st.st_dev):
+            die(f"{what}: changed while being read — refusing: {path}")
     finally:
         os.close(fd)
     actual = hashlib.sha256(data).hexdigest()
@@ -228,6 +252,45 @@ def cmd_generated(name):
                    expected_sha=hashlib.sha256(data).hexdigest())
 
 
+def download_limited(url, out_path, max_bytes):
+    """Download with a producer-enforced byte counter. curl's --max-filesize
+    only bounds responses with a known Content-Length; a chunked/unknown-
+    length endpoint can stream forever until --max-time. Here curl writes to
+    a pipe that this root process drains with a hard counter: the transfer is
+    terminated immediately after max_bytes (the pipe write then breaks curl
+    with SIGPIPE / we kill it), so the root-owned build filesystem can never
+    fill from a misbehaving endpoint. The pinned SHA-256 check still gates
+    extraction (read_verified below)."""
+    proc = subprocess.Popen(
+        CURL + ["--max-filesize", str(max_bytes), "-o", "-", url],
+        stdout=subprocess.PIPE,
+    )
+    received = 0
+    try:
+        with open(out_path, "wb") as out:
+            while True:
+                chunk = proc.stdout.read(min(65536, max_bytes + 1 - received))
+                if not chunk:
+                    break
+                received += len(chunk)
+                out.write(chunk)
+                if received > max_bytes:
+                    break
+    finally:
+        try:
+            proc.stdout.close()
+        except OSError:
+            pass
+    if received > max_bytes:
+        proc.kill()
+        proc.wait()
+        die(f"wvkbd source download exceeded the {max_bytes}-byte cap — aborting before extraction")
+    rc = proc.wait()
+    if rc != 0:
+        die(f"wvkbd source download failed (curl exit {rc})")
+    log(f"downloaded {received} bytes (hard cap {max_bytes})")
+
+
 def cmd_build_wvkbd(patch_src):
     base = dest_for(WVKBD["build_base"])
     os.makedirs(base, exist_ok=True)
@@ -237,11 +300,7 @@ def cmd_build_wvkbd(patch_src):
     try:
         tarball = os.path.join(build, "wvkbd.tar.gz")
         log(f"downloading wvkbd v{WVKBD['version']} ({WVKBD['url']})")
-        subprocess.run(
-            CURL + ["--max-filesize", str(WVKBD["max_bytes"]), "-o", tarball,
-                    WVKBD["url"]],
-            check=True,
-        )
+        download_limited(WVKBD["url"], tarball, WVKBD["max_bytes"])
         read_verified(tarball, WVKBD["archive_sha256"], "wvkbd source archive",
                       limit=WVKBD["max_bytes"])
         log("SHA-256 verified (source archive)")
