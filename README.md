@@ -53,6 +53,25 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   visible **▼ collapse key** (bottom-right) so the keyboard can be folded
   away anywhere — lock, login, normal tablet use. (sddm's own
   `InputMethod=qtvirtualkeyboard` is a dead end on Wayland.)
+- **Handwriting input (v1.24.0)** — a **pen icon in the tablet bar** (or
+  `SUPER+I`, or `omarchy-shell maxt.tablet-experience inkInputToggle`) opens
+  an **ink panel** you write on with the **stylus or a finger**. Recognition
+  is **fully offline** (PP-OCRv6 ONNX, 18 708 Chinese characters plus
+  Latin/digits; ~21 MB model, no network at recognition time — the ink never
+  leaves the machine) and the result is typed at the cursor with `wtype`, the
+  same delivery path as voice input, so CJK works in terminals and every
+  toolkit. The panel is a **layer-shell overlay with `keyboard_mode=none`**,
+  so it never steals focus from the app you are writing into. Write one
+  character and pause: candidates appear and the top one is committed
+  automatically (toggle **自动上屏** off for tap-to-pick), or tap any candidate
+  to use it. **单字 / 整行** switches between single-character candidates and
+  greedy-CTC line decoding (English words / connected writing); 清除 / 退格 /
+  空格 / 回车 / 撤销 are one tap away. The panel is **draggable by its title
+  grip (✥)** and **starts on the right side, vertically centred**; wherever you
+  leave it is remembered. Mutually exclusive with the virtual
+  keyboard and voice input, and pre-started hidden on tablet entry so the
+  first tap is instant. Stylus pressure modulates the ink width, and the
+  Bluetooth-free AES pen's eraser end works in normal drawing apps.
 - **Tablet simplified bar (v1.2)** — LAPTOP mode keeps the default full bar;
   TABLET mode pares it to essentials (menu · workspaces · clock · tray ·
   network · audio · power · this widget) and the rest (weather, indicators,
@@ -200,6 +219,9 @@ Required (installed by default):
 - `squeekboard` — on-screen keyboard
 - `iio-sensor-proxy` — accelerometer orientation for auto-rotation
 - `python-evdev` — the two gesture daemons
+- `gtk4-layer-shell` — the handwriting panel overlay (v1.24.0)
+- `python-onnxruntime-cpu`, `python-numpy`, `python-pillow` — offline
+  handwriting recognition (v1.24.0; skip with `install.sh --no-ink`)
 
 Optional:
 

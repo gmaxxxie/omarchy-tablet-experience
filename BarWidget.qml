@@ -148,6 +148,24 @@ Panel {
       }
     }
 
+    // Handwriting input (texp-ink) — TABLET MODE ONLY (v1.21): opens the
+    // stylus/finger ink panel. Recognized text is typed at the cursor with
+    // wtype (offline PP-OCRv6 ONNX — nothing leaves the machine). Mutually
+    // exclusive with the virtual keyboard and voice input.
+    WidgetButton {
+      id: inkButton
+      bar: root.bar
+      visible: root.tablet
+      text: "\uF040"            // fa-pencil (JetBrainsMono Nerd Font 实际有字形；F304 在此字体里是雪花)
+      active: root.service ? root.service.inkVisible : false
+      tooltipText: root.service && root.service.inkVisible
+        ? "Hide handwriting input (Super+I)"
+        : "Handwriting input — write with pen or finger (Super+I)"
+      onPressed: function() {
+        if (root.service) root.service.toggleInkInput()
+      }
+    }
+
     // Voice input (voxtype) — TABLET MODE ONLY (v1.5): opens/closes the
     // bottom hold-to-talk button. Press & hold there to dictate, release to
     // transcribe and type at the cursor (voxtype record start/stop).

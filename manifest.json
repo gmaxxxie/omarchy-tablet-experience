@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "maxt.tablet-experience",
   "name": "Tablet Experience",
-  "version": "1.23.1",
+  "version": "1.24.0",
   "author": "maxt",
   "license": "MIT",
-  "description": "Laptop/Tablet mode for detachable 2-in-1s: sensor-following rotation (auto + explicit fixed angles), virtual-keyboard toggle (SUPER+U / bar button / 3-finger tap) on the desktop and lock/login screens with a visible ▼ collapse key, input-method quick switch (EN/中), voice input, laptop display reset, a simplified tablet bar with per-icon toggles, and a tablet window-manage popup.",
+  "description": "Laptop/Tablet mode for detachable 2-in-1s: sensor-following rotation (auto + explicit fixed angles), virtual-keyboard toggle (SUPER+U / bar button / 3-finger tap) on the desktop and lock/login screens with a visible ▼ collapse key, input-method quick switch (EN/中), voice input, offline handwriting input (stylus/finger ink panel, SUPER+I), laptop display reset, a simplified tablet bar with per-icon toggles, and a tablet window-manage popup.",
   "kinds": [
     "service",
     "bar-widget"
@@ -15,8 +15,8 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Tablet mode + keyboard + IME + voice + window",
-    "description": "Laptop/Tablet toggle + rotation + tablet window manage (close/move) + virtual-keyboard show/hide + input-method quick switch + voxtype voice input (all tablet only)",
+    "displayName": "Tablet mode + keyboard + IME + voice + handwriting + window",
+    "description": "Laptop/Tablet toggle + rotation + tablet window manage (close/move) + virtual-keyboard show/hide + handwriting input (offline pen/finger panel) + input-method quick switch + voxtype voice input (all tablet only)",
     "category": "System",
     "allowMultiple": false
   }

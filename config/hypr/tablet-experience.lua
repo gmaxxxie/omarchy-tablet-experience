@@ -58,3 +58,10 @@ hl.bind("SUPER + SHIFT + U", hl.dsp.exec_cmd("omarchy-shell maxt.tablet-experien
 hl.bind("SUPER + SHIFT + R", hl.dsp.exec_cmd("texp-rotate next"), {
   description = "Rotate screen: next orientation (0°→90°→180°→270°)",
 })
+
+-- Phase 22 (v1.21): 手写输入 —— 触控笔/手指在面板上写字，识别后经 wtype
+-- 打进当前光标处（离线 PP-OCRv6 ONNX）。面板是 layer-shell overlay，
+-- keyboard_mode=none，不抢键盘焦点。
+hl.bind("SUPER + I", hl.dsp.exec_cmd("texp-ink toggle"), {
+  description = "手写输入面板 (texp-ink)",
+})

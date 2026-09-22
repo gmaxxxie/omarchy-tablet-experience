@@ -24,8 +24,11 @@
 #                        + panel scale 1.35 so the 6-row keyboard keys stay big
 #   3. autostart hooks -> gesture + touch daemons launch on login
 #   4. optional packages: required = squeekboard iio-sensor-proxy python-evdev
-#                        ydotool (two-finger tap = right click, v1.12.2);
+#                        ydotool (two-finger tap = right click, v1.12.2),
+#                        gtk4-layer-shell + python-onnxruntime-cpu/numpy/pillow
+#                        (handwriting input, v1.21);
 #      --with-ime adds fcitx5-rime + CJK fonts; --with-camera adds libcamera
+#      --no-ink skips the handwriting engine (packages + ~21 MB model)
 #
 # Everything is reversible: modified files get *.bak.<timestamp> backups and
 # uninstall.sh undoes every change. Run --dry-run first to preview.
@@ -35,6 +38,7 @@
 #   ./install.sh --no-packages   skip pacman (manual package install)
 #   ./install.sh --with-ime      also install Chinese IME (fcitx5-rime + fonts)
 #   ./install.sh --with-camera   also install libcamera (UVC camera in browsers)
+#   ./install.sh --no-ink        skip handwriting: no ONNX packages / model
 #   ./install.sh --dry-run       preview only, change nothing
 #   ./install.sh --verify        post-upgrade self-check (what would break)
 # ============================================================================
@@ -46,6 +50,7 @@ HYPR_DIR="${HYPR_DIR:-$HOME/.config/hypr}"
 DRY_RUN=0
 WITH_IME=0
 WITH_CAMERA=0
+WITH_INK=1
 DO_PACKAGES=1
 VERIFY=0
 
@@ -55,6 +60,7 @@ for arg in "$@"; do
     --no-packages) DO_PACKAGES=0 ;;
     --with-ime)  WITH_IME=1 ;;
     --with-camera) WITH_CAMERA=1 ;;
+    --no-ink)    WITH_INK=0 ;;
     --verify)    VERIFY=1 ;;
     -h|--help)   sed -n '2,42p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (see --help)" >&2; exit 2 ;;
@@ -303,6 +309,27 @@ if [ "$VERIFY" -eq 1 ]; then
     fi
   done
 
+  # handwriting input (v1.21)
+  if [ "$WITH_INK" -eq 1 ]; then
+    if python3 -c "import onnxruntime, numpy, cairo" >/dev/null 2>&1; then
+      ok "handwriting deps import (onnxruntime / numpy / pycairo)"
+    else
+      bad "handwriting deps missing — re-run install.sh (or pacman -S python-onnxruntime-cpu python-numpy python-pillow)"
+    fi
+    INK_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/texp-ink/models"
+    TIER="${TEXP_INK_TIER:-small}"
+    if [ -s "$INK_DATA/ppocrv6_${TIER}_rec.onnx" ] && [ -s "$INK_DATA/dict_v6.txt" ]; then
+      ok "handwriting model present (PP-OCRv6 $TIER)"
+    else
+      bad "handwriting model missing — re-run install.sh"
+    fi
+    grep -qF 'texp-ink toggle' "$HYPR_DIR/tablet-experience.lua" \
+      && ok "hypr: SUPER+I handwriting bind present" \
+      || bad "hypr: SUPER+I handwriting bind missing — re-run install.sh"
+  else
+    ok "handwriting skipped (--no-ink)"
+  fi
+
   if [ "$FAIL" -eq 1 ]; then
     echo; echo "FAILURES FOUND — re-run: $0   (or --no-packages --dry-run to preview)"; exit 1
   fi
@@ -338,9 +365,11 @@ append_if_missing() { # $1 file  $2 exact line
 # ---------------------------------------------------------------- packages
 if [ "$DO_PACKAGES" -eq 1 ]; then
   if command -v pacman >/dev/null 2>&1; then
-    REQUIRED=(squeekboard iio-sensor-proxy python-evdev ydotool)
+    REQUIRED=(squeekboard iio-sensor-proxy python-evdev ydotool gtk4-layer-shell)
     [ "$WITH_IME" -eq 1 ]    && REQUIRED+=(fcitx5-rime librime noto-fonts-cjk wqy-microhei)
     [ "$WITH_CAMERA" -eq 1 ] && REQUIRED+=(libcamera)
+    # handwriting (v1.21): ONNX runtime + numpy + Pillow (PP-OCRv6 inference)
+    [ "$WITH_INK" -eq 1 ]    && REQUIRED+=(python-onnxruntime-cpu python-numpy python-pillow)
     MISSING=()
     for p in "${REQUIRED[@]}"; do pacman -Q "$p" >/dev/null 2>&1 || MISSING+=("$p"); done
     if [ "${#MISSING[@]}" -gt 0 ]; then
@@ -369,6 +398,34 @@ for src in "$REPO_ROOT"/scripts/texp-*; do
   run install -m 0755 "$src" "$dst"
   log "install: $dst"
 done
+
+# ------------------------------------------------- handwriting model (v1.21)
+# texp-ink runs PP-OCRv6 (ONNX) locally — no network at recognition time.
+# ~21 MB for the "small" tier (best accuracy/size balance for this machine).
+if [ "$WITH_INK" -eq 1 ]; then
+  INK_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/texp-ink/models"
+  TIER="${TEXP_INK_TIER:-small}"
+  MODEL_FILE="$INK_DATA/ppocrv6_${TIER}_rec.onnx"
+  DICT_FILE="$INK_DATA/dict_v6.txt"
+  run mkdir -p "$INK_DATA"
+  if [ -s "$MODEL_FILE" ] && [ -s "$DICT_FILE" ]; then
+    log "handwriting model already present ($TIER)"
+  else
+    log "downloading PP-OCRv6 $TIER handwriting model"
+    if run curl -fL --retry 2 --max-time 600 -o "$MODEL_FILE.part" \
+         "https://huggingface.co/PaddlePaddle/PP-OCRv6_${TIER}_rec_onnx/resolve/main/inference.onnx" \
+       && run mv -f "$MODEL_FILE.part" "$MODEL_FILE"; then
+      log "model: $MODEL_FILE"
+    else
+      warn "model download failed — fetch ppocrv6_${TIER}_rec.onnx into $INK_DATA manually"
+    fi
+    if [ ! -s "$DICT_FILE" ]; then
+      run curl -fL --retry 2 --max-time 120 -o "$DICT_FILE" \
+        "https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/main/ppocr/utils/dict/ppocrv6_dict.txt" \
+        || warn "dictionary download failed — fetch dict_v6.txt into $INK_DATA manually"
+    fi
+  fi
+fi
 
 # ------------------------------------------- input-device access (evdev)
 # The gesture daemons (texp-vk / texp-touch) read the touchscreen from

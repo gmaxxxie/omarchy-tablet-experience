@@ -153,6 +153,10 @@ Item {
   property bool voxtypeUp: false
   // v1.11: on-screen keyboard visibility (voice input <-> VK are exclusive).
   property bool vkVisible: false
+  // v1.21: handwriting input (texp-ink) panel visibility. Read back from
+  // `hyprctl layers` (namespace texp-ink) so a panel closed on its own (✕)
+  // is reflected immediately.
+  property bool inkVisible: false
   // v1.17: lock-screen virtual keyboard. Hyprland renders wvkbd ABOVE the
   // Quickshell ext-session-lock surface (hl.layer_rule above_lock 2,
   // installed by config/hypr/tablet-experience.lua), so the lock screen
@@ -301,6 +305,9 @@ Item {
         root.lockVkShown = false
         root.hideVk()
       }
+      // v1.21: close the handwriting panel too — no touch-only input needed
+      // once the folio keyboard is back.
+      if (root.inkVisible) root.hideInkInput()
       // Laptop: with the keyboard docked the panel is always used
       // face-up, so the display always returns to the default 0°
       // landscape. Silent (the mode OSD above already tells the user).
@@ -323,6 +330,9 @@ Item {
     // v1.17: pre-start the virtual keyboard (hidden) so the lock screen can
     // raise it instantly by signal.
     root.preStartVk()
+    // v1.21: pre-load the handwriting recognizer (hidden) for an instant
+    // first tap.
+    root.preStartInk()
   }
 
   // Phase 6 — posture via texp-orient (sysfs accel, zero deps). Same
@@ -458,6 +468,8 @@ Item {
       // can then raise it instantly by signal (no new Wayland client has to
       // connect under a lock).
       root.preStartVk()
+      // v1.21: handwriting recognizer pre-loaded hidden.
+      root.preStartInk()
       // Laptop must sit at the default angle even right after a restart with
       // the display still rotated (requirement: choosing laptop always resets).
       if (!root.isTabletMode && root.liveTransform !== 0 && !rotateProcess.running) {
@@ -485,8 +497,9 @@ Item {
     root.voiceInputOpen = true
     root.pollVoxtype()   // refresh daemon state the moment it appears
     // v1.11: voice input and the virtual keyboard are mutually exclusive —
-    // opening one closes the other.
+    // opening one closes the other. v1.21: the handwriting panel too.
     if (root.vkVisible) root.hideVk()
+    if (root.inkVisible) root.hideInkInput()
   }
 
   function hideVoiceInput() {
@@ -553,8 +566,41 @@ Item {
 
   // v1.17: raise the (pre-started) keyboard — the lock screen, tablet mode.
   function showVk() {
+    // v1.21: the handwriting panel occupies the same bottom strip.
+    if (root.inkVisible) root.hideInkInput()
     vkCmd.command = ["texp-vk", "show"]
     vkCmd.running = true
+  }
+
+  // -------------------------------------------------- handwriting (v1.21)
+  // Bar pen icon / SUPER+I toggle the texp-ink layer panel. Recognition runs
+  // inside texp-ink (offline PP-OCRv6 ONNX, no network) and the result is
+  // typed at the cursor with wtype — the same delivery path as voice input,
+  // so CJK works in terminals and all toolkits. The panel is keyboard-inert
+  // (layer-shell keyboard_mode=none), so it never steals focus from the app.
+  function toggleInkInput() {
+    inkCmd.command = ["texp-ink", root.inkVisible ? "hide" : "show"]
+    inkCmd.running = true
+  }
+
+  function showInkInput() {
+    // Mutually exclusive with the on-screen keyboard and voice input.
+    if (root.vkVisible) root.hideVk()
+    if (root.voiceInputOpen) root.hideVoiceInput()
+    inkCmd.command = ["texp-ink", "show"]
+    inkCmd.running = true
+  }
+
+  function hideInkInput() {
+    inkCmd.command = ["texp-ink", "hide"]
+    inkCmd.running = true
+  }
+
+  // Pre-start hidden on tablet entry — the ONNX model load (~1s) happens in
+  // the background so the first tap is instant.
+  function preStartInk() {
+    inkCmd.command = ["texp-ink", "start-hidden"]
+    inkCmd.running = true
   }
 
   // v1.17: pre-start the keyboard HIDDEN on tablet entry, so the lock can
@@ -627,6 +673,7 @@ Item {
   BoundedProcess { id: clrCmd }
   BoundedProcess { id: arrowCmd }
   BoundedProcess { id: vkCmd }
+  BoundedProcess { id: inkCmd }
 
   BoundedProcess {
     id: vkProbe
@@ -639,6 +686,7 @@ Item {
     command: ["hyprctl", "layers", "-j"]
     onStreamFinished: {
       var vis = false
+      var ink = false
       try {
         var d = JSON.parse(output || "{}")
         for (var out in d) {
@@ -646,16 +694,14 @@ Item {
           for (var lvl in levels) {
             var arr = levels[lvl] || []
             for (var i = 0; i < arr.length; i++) {
-              if (String(arr[i].namespace || "").indexOf("wvkbd") !== -1) {
-                vis = true
-                break
-              }
+              var ns = String(arr[i].namespace || "")
+              if (ns.indexOf("wvkbd") !== -1) vis = true
+              if (ns.indexOf("texp-ink") !== -1) ink = true
             }
-            if (vis) break
           }
-          if (vis) break
         }
       } catch (e) {}
+      root.inkVisible = ink
       root.onVkState(vis ? "visible" : "hidden")
     }
   }
@@ -1488,6 +1534,7 @@ Item {
         isTabletMode: root.isTabletMode,
         barHidden: root.barHidden,
         voiceInputOpen: root.voiceInputOpen,
+        inkVisible: root.inkVisible,
         voiceRecording: root.recording,
         voxtypeUp: root.voxtypeUp,
         locked: root.locked,
@@ -1599,6 +1646,22 @@ Item {
     function voiceInputHide(): string {
       root.hideVoiceInput()
       return "closed"
+    }
+
+    // ---- handwriting input (v1.21): open/close the texp-ink panel.
+    function inkInputToggle(): string {
+      root.toggleInkInput()
+      return root.inkVisible ? "hidden" : "visible"
+    }
+
+    function inkInputShow(): string {
+      root.showInkInput()
+      return "visible"
+    }
+
+    function inkInputHide(): string {
+      root.hideInkInput()
+      return "hidden"
     }
   }
 }

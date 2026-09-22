@@ -1,0 +1,1104 @@
+#!/usr/bin/env python3
+"""
+texp-ink — 触控笔 / 手指 手写输入面板（Tablet Experience 插件组件）
+
+用笔或手指在面板上写字，识别结果通过 wtype 打进当前光标处
+（与 voxtype 语音输入同一套机制，CJK 可用）。
+
+识别引擎：PP-OCRv6 rec ONNX（离线、本地推理、笔迹不出本机）
+  模型: ~/.local/share/texp-ink/models/ppocrv6_<tier>_rec.onnx
+  词典: ~/.local/share/texp-ink/models/dict_v6.txt   (18708 字)
+
+用法:
+  texp-ink                  切换显示/隐藏
+  texp-ink toggle|show|hide 同上的显式形式
+  texp-ink start-hidden     预启动（加载模型）但不显示，供平板模式预载
+  texp-ink status           打印 visible / hidden
+  texp-ink __run            内部：前台运行面板（由 toggle/show 自动拉起）
+  texp-ink __selftest       内部：GUI 通路的无头自检
+
+环境变量:
+  TEXP_INK_TIER       模型档位 tiny|small|medium（默认 small）
+  TEXP_INK_MODEL      显式指定 .onnx 路径
+  TEXP_INK_DICT       显式指定词典路径
+  TEXP_INK_IDLE_MS    停顿多久后识别（默认 700）
+  TEXP_INK_AUTO       1=自动上屏（默认 1），0=手动选字
+  TEXP_INK_MIN_CONF   自动上屏的最低置信度（默认 0.60）
+  TEXP_INK_STROKE_W   笔迹粗细（默认 8）
+  TEXP_INK_DEBUG      1=打印识别日志
+"""
+from __future__ import annotations
+
+import os
+import signal
+import subprocess
+import sys
+import threading
+import time
+from dataclasses import dataclass, field  # noqa: F401
+from typing import List, Optional, Sequence, Tuple
+
+# --------------------------------------------------------------------------
+# gtk4-layer-shell 必须早于 libwayland-client 载入（链接顺序问题）。
+# 发行版自带一个专用的 preload 库，用它自我重启一次即可。
+# --------------------------------------------------------------------------
+_PRELOAD = "/usr/lib/libgtk4-layer-shell.so"
+if (
+    os.path.exists(_PRELOAD)
+    and os.environ.get("TEXP_INK_NO_PRELOAD") != "1"
+    and _PRELOAD not in os.environ.get("LD_PRELOAD", "")
+    and ("__run" in sys.argv or "__selftest" in sys.argv)
+):
+    _env = dict(os.environ)
+    _env["LD_PRELOAD"] = (_PRELOAD + ":" + _env.get("LD_PRELOAD", "")).strip(":")
+    os.execve(
+        sys.executable,
+        [sys.executable, os.path.abspath(__file__)] + sys.argv[1:],
+        _env,
+    )
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+gi.require_version("Gtk4LayerShell", "1.0")
+gi.require_version("GLibUnix", "2.0")
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+from gi.repository import GLibUnix  # noqa: E402
+from gi.repository import Gtk4LayerShell as LayerShell  # noqa: E402
+
+import cairo  # noqa: E402
+import numpy as np  # noqa: E402
+
+# --------------------------------------------------------------------------
+# 常量 / 路径
+# --------------------------------------------------------------------------
+APP = "texp-ink"
+NS = "texp-ink"  # layer-shell namespace（hypr 规则用）
+STATE_DIR = os.path.join(
+    os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")), APP
+)
+STATE_FILE = os.path.join(STATE_DIR, "visible")
+GEOM_FILE = os.path.join(STATE_DIR, "geometry")
+PID_FILE = os.path.join(STATE_DIR, "pid")
+
+# 面板默认尺寸 / 默认位置（右侧、垂直居中，可拖动，位置持久化）
+PANEL_W = int(os.environ.get("TEXP_INK_W", "620"))
+PANEL_H = int(os.environ.get("TEXP_INK_H", "450"))
+EDGE_GAP = 14
+
+DATA_DIR = os.path.join(
+    os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), APP
+)
+MODEL_DIR = os.path.join(DATA_DIR, "models")
+
+DEFAULT_TIER = os.environ.get("TEXP_INK_TIER", "small")
+IDLE_MS = int(os.environ.get("TEXP_INK_IDLE_MS", "700"))
+AUTO_COMMIT = os.environ.get("TEXP_INK_AUTO", "1") not in ("0", "false", "no")
+MIN_CONF = float(os.environ.get("TEXP_INK_MIN_CONF", "0.60"))
+STROKE_W = float(os.environ.get("TEXP_INK_STROKE_W", "8"))
+DEBUG = os.environ.get("TEXP_INK_DEBUG", "") not in ("", "0")
+
+Point = Tuple[float, float, float]  # x, y, pressure
+Stroke = List[Point]
+
+
+def log(*a):
+    if DEBUG:
+        print(f"[{APP}]", *a, file=sys.stderr, flush=True)
+
+
+def model_path(tier: str) -> str:
+    return os.environ.get("TEXP_INK_MODEL") or os.path.join(
+        MODEL_DIR, f"ppocrv6_{tier}_rec.onnx"
+    )
+
+
+def dict_path() -> str:
+    return os.environ.get("TEXP_INK_DICT") or os.path.join(MODEL_DIR, "dict_v6.txt")
+
+
+# --------------------------------------------------------------------------
+# 状态文件（供 shell 轮询显示图标高亮）
+# --------------------------------------------------------------------------
+def _ensure_state_dir() -> str:
+    """0700 且属主校验的状态目录。"""
+    os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
+    st = os.lstat(STATE_DIR)
+    if not os.path.isdir(STATE_DIR) or st.st_uid != os.getuid():
+        raise RuntimeError(f"unsafe state dir: {STATE_DIR}")
+    if st.st_mode & 0o077:
+        os.chmod(STATE_DIR, 0o700)
+    return STATE_DIR
+
+
+def write_state(visible: bool) -> None:
+    try:
+        d = _ensure_state_dir()
+        tmp = os.path.join(d, ".visible.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            fh.write("visible\n" if visible else "hidden\n")
+        os.replace(tmp, STATE_FILE)
+    except Exception as e:  # 状态文件失败不应影响主功能
+        log("write_state failed:", e)
+
+
+def read_state() -> str:
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as fh:
+            v = fh.read(32).strip()
+        return v if v in ("visible", "hidden") else "hidden"
+    except FileNotFoundError:
+        return "hidden"
+    except OSError:
+        return "hidden"
+
+
+def write_geometry(x: int, y: int) -> None:
+    """保存面板位置（左上角，逻辑像素），供下次打开恢复。"""
+    try:
+        d = _ensure_state_dir()
+        tmp = os.path.join(d, ".geometry.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            fh.write(f"{int(x)} {int(y)}\n")
+        os.replace(tmp, GEOM_FILE)
+    except Exception as e:
+        log("write_geometry failed:", e)
+
+
+def read_geometry() -> Optional[Tuple[int, int]]:
+    try:
+        with open(GEOM_FILE, "r", encoding="utf-8") as fh:
+            parts = fh.read(64).split()
+        if len(parts) == 2:
+            return int(parts[0]), int(parts[1])
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+# --------------------------------------------------------------------------
+# 识别引擎
+# --------------------------------------------------------------------------
+class Recognizer:
+    """PP-OCRv6 rec ONNX：把笔迹渲染成灰度图，跑推理，CTC 解码。"""
+
+    def __init__(self, model: str, dictionary: str, stroke_w: float = STROKE_W):
+        import onnxruntime  # 延迟导入：--help / status 不需要它
+
+        self.stroke_w = stroke_w
+        self.session = onnxruntime.InferenceSession(
+            model, providers=["CPUExecutionProvider"]
+        )
+        self.dict: List[str] = []
+        with open(dictionary, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.rstrip("\n")
+                if line:
+                    self.dict.append(line)
+        # 类别 = blank(0) + N 字 + unknown(N+1)
+        self.num_classes = len(self.dict) + 2
+        log(f"model loaded: {os.path.basename(model)} classes={self.num_classes}")
+
+    # ---- 渲染 ----
+    def _render(self, strokes: Sequence[Stroke]) -> Optional[np.ndarray]:
+        pts = [p for s in strokes for p in s]
+        if len(pts) < 2:
+            return None
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        xmin, xmax, ymin, ymax = min(xs), max(xs), min(ys), max(ys)
+        pad = 20
+        w = int(max(xmax - xmin + 2 * pad, 200))
+        h = int(max(ymax - ymin + 2 * pad, 200))
+        surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
+        cr = cairo.Context(surf)
+        cr.set_source_rgb(1, 1, 1)
+        cr.paint()
+        cr.set_source_rgb(0, 0, 0)
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        cr.set_line_join(cairo.LINE_JOIN_ROUND)
+        for s in strokes:
+            if len(s) < 2:
+                continue
+            # 按压力调制线宽（0.55x ~ 1.0x），无压力数据时用满宽
+            for i in range(len(s) - 1):
+                p0, p1 = s[i], s[i + 1]
+                press = 0.5 * (p0[2] + p1[2])
+                cr.set_line_width(max(self.stroke_w * (0.55 + 0.45 * press), 1.5))
+                cr.move_to(p0[0] - xmin + pad, p0[1] - ymin + pad)
+                cr.line_to(p1[0] - xmin + pad, p1[1] - ymin + pad)
+                cr.stroke()
+        arr = np.frombuffer(surf.get_data(), dtype=np.uint8).reshape(h, w, 4)
+        gray = arr[:, :, 2].astype(np.float32)  # ARGB32 little-endian → R 通道
+        return self._resize_to_h(gray, 48)
+
+    @staticmethod
+    def _resize_to_h(img: np.ndarray, target_h: int) -> np.ndarray:
+        h, w = img.shape
+        scale = target_h / h
+        target_w = max(int(w * scale), 1)
+        sy = np.arange(target_h, dtype=np.float32) * h / target_h
+        sx = np.arange(target_w, dtype=np.float32) * w / target_w
+        y0 = np.floor(sy).astype(np.int32)
+        y1 = np.minimum(y0 + 1, h - 1)
+        dy = sy - y0
+        x0 = np.floor(sx).astype(np.int32)
+        x1 = np.minimum(x0 + 1, w - 1)
+        dx = sx - x0
+        return (
+            img[y0[:, None], x0[None, :]] * (1 - dy[:, None]) * (1 - dx[None, :])
+            + img[y1[:, None], x0[None, :]] * dy[:, None] * (1 - dx[None, :])
+            + img[y0[:, None], x1[None, :]] * (1 - dy[:, None]) * dx[None, :]
+            + img[y1[:, None], x1[None, :]] * dy[:, None] * dx[None, :]
+        )
+
+    def _infer(self, strokes: Sequence[Stroke]) -> Optional[np.ndarray]:
+        small = self._render(strokes)
+        if small is None:
+            return None
+        norm = small / 127.5 - 1.0
+        inp = np.ascontiguousarray(
+            np.repeat(norm[None, None, :, :], 3, axis=1), dtype=np.float32
+        )
+        out = self.session.run(None, {"x": inp})[0]  # [1, T, C]
+        return out[0]
+
+    # ---- 单字候选（中文手写：一次写一个字） ----
+    def candidates(self, strokes: Sequence[Stroke], k: int = 12) -> List[Tuple[str, float]]:
+        probs = self._infer(strokes)
+        if probs is None:
+            return []
+        per_class = probs.max(axis=0)  # 每个字在时间轴上的峰值置信度
+        char_probs = per_class[1:-1]  # 去掉 blank 与 unknown
+        k = min(k, len(char_probs))
+        idx = np.argpartition(char_probs, -k)[-k:]
+        idx = idx[np.argsort(char_probs[idx])[::-1]]
+        return [(self.dict[int(i)], float(char_probs[int(i)])) for i in idx]
+
+    # ---- 整行（贪婪 CTC：适合英文单词 / 连写短句） ----
+    def sequence(self, strokes: Sequence[Stroke]) -> str:
+        probs = self._infer(strokes)
+        if probs is None:
+            return ""
+        best = probs.argmax(axis=1)
+        out: List[str] = []
+        prev = -1
+        for i in best:
+            i = int(i)
+            if i != prev and i != 0 and i <= len(self.dict):
+                out.append(self.dict[i - 1])
+            prev = i
+        return "".join(out)
+
+
+# --------------------------------------------------------------------------
+# 主题色
+# --------------------------------------------------------------------------
+def _hex_to_rgb(h: str) -> Tuple[float, float, float]:
+    h = h.strip().lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    try:
+        return tuple(int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4))  # type: ignore
+    except ValueError:
+        return (0.5, 0.5, 0.5)
+
+
+def _luminance(rgb: Tuple[float, float, float]) -> float:
+    return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+
+
+def theme_colors() -> dict:
+    """从 `omarchy theme color --all` 取主题色（TAB 分隔 key<TAB>hex）。"""
+    fallback = {
+        "bg": "#faf4ed",
+        "fg": "#575279",
+        "accent": "#56949f",
+        "border": "#cecacd",
+        "muted": "#6e6a86",
+    }
+    try:
+        out = subprocess.run(
+            ["omarchy", "theme", "color", "--all"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        ).stdout
+    except Exception:
+        return fallback
+    m: dict = {}
+    for line in out.splitlines():
+        if "\t" in line:
+            k, v = line.split("\t", 1)
+            m[k.strip()] = v.strip()
+    if not m:
+        return fallback
+    bg = m.get("background", fallback["bg"])
+    fg = m.get("foreground", m.get("fg", fallback["fg"]))
+    accent = m.get("accent", fallback["accent"])
+    border = m.get("color8", fallback["border"])
+    # 墨色：浅色主题用近黑，深色主题用近白（否则看不见）
+    ink = "#1b1b20" if _luminance(_hex_to_rgb(bg)) > 0.5 else "#eef0f7"
+    return {
+        "bg": bg,
+        "fg": fg,
+        "accent": accent,
+        "border": border,
+        "muted": border,
+        "ink": ink,
+    }
+
+
+def render_css(c: dict) -> str:
+    return f"""
+    window {{ background: transparent; }}
+    .ink-card {{
+      background: {c['bg']};
+      color: {c['fg']};
+      border: 1px solid {c['border']};
+      border-radius: 14px;
+      padding: 8px;
+    }}
+    .ink-title {{ font-weight: 600; font-size: 13px; color: {c['muted']}; }}
+    .ink-grip {{ padding: 3px 8px; border-radius: 7px; background: alpha({c['fg']}, 0.06); }}
+    .ink-area {{
+      background: alpha({c['fg']}, 0.05);
+      border-radius: 10px;
+    }}
+    button {{
+      background: alpha({c['fg']}, 0.08);
+      color: {c['fg']};
+      border: none;
+      border-radius: 8px;
+      padding: 6px 10px;
+      min-height: 34px;
+    }}
+    button:hover {{ background: alpha({c['accent']}, 0.30); }}
+    button.primary {{ background: alpha({c['accent']}, 0.75); color: {c['bg']}; font-weight: 600; }}
+    button.mini {{ min-height: 28px; padding: 2px 8px; font-size: 20px; }}
+    .cand-title {{ font-size: 12px; color: {c['muted']}; }}
+    """
+
+
+# --------------------------------------------------------------------------
+# 手写画布
+# --------------------------------------------------------------------------
+class InkArea(Gtk.DrawingArea):
+    """接收笔/手指笔迹并绘制的画布。"""
+
+    def __init__(self, on_change, ink=(0.1, 0.1, 0.12)):
+        super().__init__()
+        self.ink = ink
+        self.strokes: List[Stroke] = []
+        self._cur: Optional[Stroke] = None
+        self._pen_active = False
+        self._touch_active = False
+        self._on_change = on_change
+        self.set_hexpand(True)
+        self.set_vexpand(True)
+        self.set_content_height(240)
+        self.set_draw_func(self._draw)
+        self.add_css_class("ink-area")
+
+        self.line_w = 4.0
+
+        # --- 触控笔 ---
+        st = Gtk.GestureStylus()
+        st.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        st.connect("down", self._pen_down)
+        st.connect("motion", self._pen_motion)
+        st.connect("up", self._pen_up)
+        self.add_controller(st)
+
+        # --- 手指 / 鼠标 ---
+        dr = Gtk.GestureDrag()
+        dr.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        dr.connect("drag-begin", self._drag_begin)
+        dr.connect("drag-update", self._drag_update)
+        dr.connect("drag-end", self._drag_end)
+        self.add_controller(dr)
+        self._drag = dr
+
+    # ---- 工具函数 ----
+    @staticmethod
+    def _pt(g) -> Optional[Tuple[float, float]]:
+        try:
+            ok, p = g.get_point(None)
+        except Exception:
+            return None
+        if not ok or p is None:
+            return None
+        return float(p.x), float(p.y)
+
+    @staticmethod
+    def _pressure(g) -> float:
+        try:
+            v = g.get_axis(Gdk.AxisUse.PRESSURE)
+        except Exception:
+            return 1.0
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return 1.0
+        if v <= 0.0:
+            return 1.0
+        return min(v, 1.0)
+
+    @staticmethod
+    def _is_pen(g) -> bool:
+        try:
+            ev = g.get_current_event()
+            dev = ev.get_device() if ev else None
+            if dev is None:
+                return False
+            src = dev.get_source()
+            return src in (Gdk.InputSource.PEN, Gdk.InputSource.TABLET)
+        except Exception:
+            return False
+
+    def _begin(self, xy: Tuple[float, float], press: float):
+        self._cur = [(xy[0], xy[1], press)]
+        self.queue_draw()
+
+    def _extend(self, xy: Tuple[float, float], press: float):
+        if self._cur is None:
+            return
+        lx, ly, _ = self._cur[-1]
+        if abs(xy[0] - lx) < 0.7 and abs(xy[1] - ly) < 0.7:
+            return
+        self._cur.append((xy[0], xy[1], press))
+        self.queue_draw()
+
+    def _end(self):
+        if self._cur and len(self._cur) >= 2:
+            self.strokes.append(self._cur)
+        self._cur = None
+        self.queue_draw()
+        self._on_change()
+
+    # ---- 笔 ----
+    def _pen_down(self, g, x, y):
+        self._pen_active = True
+        self._begin((x, y), self._pressure(g))
+
+    def _pen_motion(self, g, x, y):
+        if not self._pen_active:
+            return
+        self._extend((x, y), self._pressure(g))
+
+    def _pen_up(self, g, x, y):
+        if not self._pen_active:
+            return
+        self._pen_active = False
+        self._end()
+
+    # ---- 手指 / 鼠标 ----
+    def _drag_begin(self, g, sx, sy):
+        if self._is_pen(g):  # 笔已由 GestureStylus 处理，避免重复
+            return
+        self._touch_active = True
+        self._begin((sx, sy), 1.0)
+
+    def _drag_update(self, g, ox, oy):
+        if not self._touch_active:
+            return
+        p = self._pt(g)
+        if p:
+            self._extend(p, 1.0)
+
+    def _drag_end(self, g, ox, oy):
+        if not self._touch_active:
+            return
+        self._touch_active = False
+        self._end()
+
+    # ---- 绘制 ----
+    def clear(self):
+        self.strokes = []
+        self._cur = None
+        self.queue_draw()
+
+    def snapshot(self) -> List[Stroke]:
+        s = [list(st) for st in self.strokes]
+        if self._cur and len(self._cur) >= 2:
+            s.append(list(self._cur))
+        return s
+
+    def _draw(self, area, cr, w, h):
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        cr.set_line_join(cairo.LINE_JOIN_ROUND)
+        # 提示文字（必须用带 CJK 的字体，否则是方框）
+        if not self.strokes and self._cur is None:
+            cr.set_source_rgba(*self.ink, 0.35)
+            cr.select_font_face(
+                "Noto Sans CJK SC",
+                cairo.FONT_SLANT_NORMAL,
+                cairo.FONT_WEIGHT_NORMAL,
+            )
+            cr.set_font_size(18)
+            msg = "用笔或手指在此书写"
+            ext = cr.text_extents(msg)
+            cr.move_to((w - ext.width) / 2, h / 2)
+            cr.show_text(msg)
+            return
+        cr.set_source_rgb(*self.ink)
+        for s in self.strokes + ([self._cur] if self._cur else []):
+            if len(s) < 2:
+                continue
+            for i in range(len(s) - 1):
+                p0, p1 = s[i], s[i + 1]
+                press = 0.5 * (p0[2] + p1[2])
+                cr.set_line_width(max(self.line_w * (0.55 + 0.45 * press), 1.2))
+                cr.move_to(p0[0], p0[1])
+                cr.line_to(p1[0], p1[1])
+                cr.stroke()
+
+
+# --------------------------------------------------------------------------
+# 主面板
+# --------------------------------------------------------------------------
+class InkPanel:
+    def __init__(self, recognizer: Recognizer):
+        self.rec = recognizer
+        self.visible = False
+        self.auto = AUTO_COMMIT
+        self.line_mode = False          # False=单字候选, True=整行 CTC
+        self.last_commit = ""           # 上一次已上屏的文本（撤销用）
+        self.pending_replace = 0        # 自动上屏后仍可“改选”的字符数
+        self._idle_id = 0
+        self._busy = False
+        self._last_cands: List[Tuple[str, float]] = []
+        self._strokes_at_recog = 0
+
+        colors = theme_colors()
+        css = Gtk.CssProvider()
+        css.load_from_string(render_css(colors))
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
+        self.win = Gtk.Window()
+        self.win.set_title("texp-ink")
+        self.win.set_default_size(PANEL_W, PANEL_H)
+        LayerShell.init_for_window(self.win)
+        LayerShell.set_namespace(self.win, NS)
+        LayerShell.set_layer(self.win, LayerShell.Layer.OVERLAY)
+        # 自由定位：锚定左上角 + 用 margin 当坐标 → 面板可拖动（位置持久化）
+        LayerShell.set_anchor(self.win, LayerShell.Edge.TOP, True)
+        LayerShell.set_anchor(self.win, LayerShell.Edge.LEFT, True)
+        self._drag_origin: Optional[Tuple[int, int]] = None
+        self.px, self.py = self._initial_pos()
+        self._apply_pos(self.px, self.py)
+        log(f"initial pos={self.px},{self.py} screen={self._monitor_size()} saved={read_geometry()}")
+        # 关键：不抢键盘焦点 → wtype 才能把字打进原来的应用
+        LayerShell.set_keyboard_mode(self.win, LayerShell.KeyboardMode.NONE)
+        if not LayerShell.is_layer_window(self.win):
+            log("警告：layer-shell 未生效 —— wtype 可能把字打进面板自身")
+        else:
+            log("layer-shell 就绪：namespace=%s" % NS)
+
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card.add_css_class("ink-card")
+        self.win.set_child(card)
+
+        # --- 标题栏 ---
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        # 拖动柄：把这行标题拖到哪里，面板就到哪里（位置自动记住）
+        title = Gtk.Label(label="\uF0B2  手写输入")
+        title.add_css_class("ink-title")
+        title.add_css_class("ink-grip")
+        title.set_tooltip_text("按住这里拖动面板（位置自动记住）")
+        grip = Gtk.GestureDrag()
+        grip.connect("drag-begin", self._move_begin)
+        grip.connect("drag-update", self._move_update)
+        grip.connect("drag-end", self._move_end)
+        title.add_controller(grip)
+        head.append(title)
+        head.append(Gtk.Box(hexpand=True))
+        self.btn_auto = Gtk.Button(label="自动上屏")
+        self.btn_auto.add_css_class("mini")
+        self.btn_auto.connect("clicked", self._toggle_auto)
+        head.append(self.btn_auto)
+        self.btn_mode = Gtk.Button(label="单字")
+        self.btn_mode.add_css_class("mini")
+        self.btn_mode.connect("clicked", self._toggle_mode)
+        head.append(self.btn_mode)
+        btn_close = Gtk.Button(label="✕")
+        btn_close.add_css_class("mini")
+        btn_close.connect("clicked", lambda *_: self.hide())
+        head.append(btn_close)
+        card.append(head)
+
+        # --- 画布 ---
+        self.area = InkArea(self._on_ink_change, ink=_hex_to_rgb(colors["ink"]))
+        card.append(self.area)
+
+        # --- 候选 ---
+        cand_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.cand_label = Gtk.Label(label="候选")
+        self.cand_label.add_css_class("cand-title")
+        cand_row.append(self.cand_label)
+        self.cand_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        cand_row.append(self.cand_box)
+        card.append(cand_row)
+
+        # --- 操作 ---
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        for label, fn in (
+            ("清除", self._clear),
+            ("退格", lambda: self._key("BackSpace")),
+            ("空格", lambda: self._key("space")),
+            ("回车", lambda: self._key("Return")),
+            ("撤销", self._undo),
+        ):
+            b = Gtk.Button(label=label)
+            b.connect("clicked", lambda _b, f=fn: f())
+            actions.append(b)
+        actions.append(Gtk.Box(hexpand=True))
+        self.hint = Gtk.Label(label="")
+        self.hint.add_css_class("cand-title")
+        actions.append(self.hint)
+        card.append(actions)
+
+        self._update_auto_btn()
+        self._update_mode_btn()
+
+    # ---- 面板位置（可拖动 + 持久化） ----
+    def _monitor_size(self) -> Tuple[int, int]:
+        try:
+            disp = Gdk.Display.get_default()
+            surf = self.win.get_surface()
+            mon = disp.get_monitor_at_surface(surf) if surf else None
+            if mon is None:
+                mons = disp.get_monitors()
+                mon = mons.get_item(0) if mons and mons.get_n_items() else None
+            if mon is not None:
+                g = mon.get_geometry()
+                return int(g.width), int(g.height)
+        except Exception as e:
+            log("monitor size probe failed:", e)
+        return 1536, 1024
+
+    def _size(self) -> Tuple[int, int]:
+        # 未映射前 get_width/height 还是内容自然尺寸（会偏小），直接用配置尺寸，
+        # 否则首次居中的夹取会用错的高度。
+        if not self.win.get_mapped():
+            return PANEL_W, PANEL_H
+        return (self.win.get_width() or PANEL_W, self.win.get_height() or PANEL_H)
+
+    @staticmethod
+    def _clamp_pos(x, y, sw, sh, pw, ph) -> Tuple[int, int]:
+        return (
+            max(0, min(int(x), max(0, sw - pw))),
+            max(0, min(int(y), max(0, sh - ph))),
+        )
+
+    def _initial_pos(self) -> Tuple[int, int]:
+        sw, sh = self._monitor_size()
+        saved = read_geometry()
+        if saved is not None:
+            x, y = saved
+        else:
+            # 默认：贴屏幕右侧，垂直居中（用户习惯右手持笔）
+            x = sw - PANEL_W - EDGE_GAP
+            y = (sh - PANEL_H) // 2
+        return self._clamp_pos(x, y, sw, sh, PANEL_W, PANEL_H)
+
+    # 注：Hyprland 的 layer 几何会把顶部 Omarchy 栏的独占区算进去，
+    # 所以请求的 top margin 会实际下移约 35px（栏高）——这是 layer-shell
+    # 的标准行为，不是误差：margin 0 意味着“紧贴栏下”。x 方向无独占区，故精确。
+
+    def _apply_pos(self, x: int, y: int) -> None:
+        self.px, self.py = int(x), int(y)
+        LayerShell.set_margin(self.win, LayerShell.Edge.LEFT, self.px)
+        LayerShell.set_margin(self.win, LayerShell.Edge.TOP, self.py)
+        # gtk4-layer-shell 只在下一个布局/帧周期把新 margin 提交给合成器，
+        # 不主动重排的话表面会留在原处（拖动时看得出来）。
+        self.win.queue_resize()
+        self.win.queue_draw()
+
+    def _move_begin(self, g, sx, sy):
+        self._drag_origin = (self.px, self.py)
+
+    def _move_update(self, g, ox, oy):
+        if not self._drag_origin:
+            return
+        sw, sh = self._monitor_size()
+        pw, ph = self._size()
+        x = self._drag_origin[0] + ox
+        y = self._drag_origin[1] + oy
+        self._apply_pos(*self._clamp_pos(x, y, sw, sh, pw, ph))
+
+    def _move_end(self, g, ox, oy):
+        if self._drag_origin:
+            write_geometry(self.px, self.py)
+            log(f"panel moved to {self.px},{self.py}")
+        self._drag_origin = None
+
+    # ---- 显示控制 ----
+    def show(self):
+        # 分辨率/显示器变了就重新夹取一次（避免留在屏幕外）
+        sw, sh = self._monitor_size()
+        pw, ph = self._size()
+        self._apply_pos(*self._clamp_pos(self.px, self.py, sw, sh, pw, ph))
+        self.win.present()
+        self.visible = True
+        write_state(True)
+
+    def hide(self):
+        self.win.set_visible(False)
+        self.visible = False
+        write_state(False)
+
+    def toggle(self):
+        self.hide() if self.visible else self.show()
+
+    # ---- 按钮状态 ----
+    def _update_auto_btn(self):
+        self.btn_auto.set_label("自动上屏" if self.auto else "手动选字")
+
+    def _update_mode_btn(self):
+        self.btn_mode.set_label("单字" if not self.line_mode else "整行")
+
+    def _toggle_auto(self, *_):
+        self.auto = not self.auto
+        self._update_auto_btn()
+
+    def _toggle_mode(self, *_):
+        self.line_mode = not self.line_mode
+        self._update_mode_btn()
+        self._set_candidates([])
+
+    # ---- 笔迹变化 → 防抖识别 ----
+    def _on_ink_change(self):
+        self.pending_replace = 0
+        if self._idle_id:
+            GLib.source_remove(self._idle_id)
+        self._idle_id = GLib.timeout_add(IDLE_MS, self._recognize)
+
+    # ---- 识别（后台线程） ----
+    def _recognize(self):
+        self._idle_id = 0
+        strokes = self.area.snapshot()
+        if not strokes or self._busy:
+            return False
+        self._busy = True
+        n = len(strokes)
+        mode = self.line_mode
+
+        def work():
+            t0 = time.time()
+            try:
+                if mode:
+                    text = self.rec.sequence(strokes)
+                    res = [(text, 1.0)] if text else []
+                else:
+                    res = self.rec.candidates(strokes)
+            except Exception as e:
+                log("recognition error:", e)
+                res = []
+            log(f"recognized {n} strokes in {int((time.time()-t0)*1000)}ms → {res[:5]}")
+            GLib.idle_add(self._on_result, res, n)
+
+        threading.Thread(target=work, daemon=True).start()
+        return False
+
+    def _on_result(self, res, n):
+        self._busy = False
+        # 识别期间用户又写了新笔画 → 丢弃这次结果
+        if len(self.area.snapshot()) != n:
+            return False
+        self._last_cands = res
+        self._set_candidates(res)
+
+        if not res:
+            return False
+        top, conf = res[0]
+        if self.auto and top and conf >= MIN_CONF:
+            self._commit(top, replace=False)
+            self.pending_replace = len(top)
+            self.area.clear()
+            self._set_candidates(res, keep=True)
+        return False
+
+    # ---- 候选按钮 ----
+    def _set_candidates(self, res, keep: bool = False):
+        child = self.cand_box.get_first_child()
+        while child:
+            nxt = child.get_next_sibling()
+            self.cand_box.remove(child)
+            child = nxt
+        if not res:
+            self.cand_label.set_label("候选")
+            return
+        self.cand_label.set_label("候选")
+        for ch, conf in res[:12]:
+            b = Gtk.Button(label=ch if ch else "␣")
+            b.add_css_class("mini")
+            b.set_tooltip_text(f"{ch}  置信度 {conf:.2f}")
+            b.connect("clicked", lambda _b, t=ch: self._pick(t))
+            self.cand_box.append(b)
+
+    def _pick(self, text: str):
+        if not text:
+            return
+        if self.pending_replace > 0:
+            self._key("BackSpace", repeat=self.pending_replace)
+            self.pending_replace = 0
+        self._commit(text, replace=False)
+        self.area.clear()
+        self._set_candidates([])
+
+    # ---- 上屏 ----
+    def _commit(self, text: str, replace: bool = False):
+        if not text:
+            return
+        if replace and self.last_commit:
+            self._key("BackSpace", repeat=len(self.last_commit))
+        try:
+            subprocess.Popen(["wtype", "--", text], stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+        except FileNotFoundError:
+            self._say("未找到 wtype")
+            return
+        self.last_commit = text
+        self._say(f"已输入：{text}")
+
+    def _key(self, key: str, repeat: int = 1):
+        if repeat <= 0:
+            return
+        args = ["wtype"]
+        for _ in range(repeat):
+            args += ["-k", key]
+        try:
+            subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except FileNotFoundError:
+            self._say("未找到 wtype")
+
+    def _undo(self):
+        if self.last_commit:
+            self._key("BackSpace", repeat=len(self.last_commit))
+            self._say(f"已撤销：{self.last_commit}")
+            self.last_commit = ""
+
+    def _clear(self):
+        self.area.clear()
+        self._set_candidates([])
+        self.pending_replace = 0
+
+    def _say(self, msg: str):
+        self.hint.set_label(msg)
+
+
+# --------------------------------------------------------------------------
+# 单实例 / IPC
+# --------------------------------------------------------------------------
+def _read_pid() -> Optional[int]:
+    try:
+        with open(PID_FILE, "r", encoding="utf-8") as fh:
+            return int(fh.read(32).strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _alive(pid: int) -> bool:
+    # 注意：os.kill(-1, 0) 会检查“所有进程”并成功返回，所以 pid<=0 必须直接判否，
+    # 否则没有 pid 文件时会被误判为“实例在运行”，从而拒绝拉起面板。
+    if not pid or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _signal_instance(sig: int) -> bool:
+    pid = _read_pid()
+    if pid and _alive(pid):
+        try:
+            os.kill(pid, sig)
+            return True
+        except OSError:
+            return False
+    return False
+
+
+def _spawn(hidden: bool = False) -> None:
+    """后台拉起 __run（脱离当前进程组）。hidden=True 时预先加载但不显示。"""
+    env = dict(os.environ)
+    if os.path.exists(_PRELOAD) and _PRELOAD not in env.get("LD_PRELOAD", ""):
+        env["LD_PRELOAD"] = (_PRELOAD + ":" + env.get("LD_PRELOAD", "")).strip(":")
+    if hidden:
+        env["TEXP_INK_START_HIDDEN"] = "1"
+    subprocess.Popen(
+        ["setsid", sys.executable, os.path.abspath(__file__), "__run"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+        env=env,
+    )
+
+
+def run_panel() -> int:
+    _ensure_state_dir()
+    with open(PID_FILE, "w") as fh:
+        fh.write(str(os.getpid()))
+
+    try:
+        rec = Recognizer(model_path(DEFAULT_TIER), dict_path())
+    except Exception as e:
+        print(f"{APP}: 无法加载模型：{e}", file=sys.stderr)
+        print(f"  模型: {model_path(DEFAULT_TIER)}", file=sys.stderr)
+        print(f"  词典: {dict_path()}", file=sys.stderr)
+        return 3
+
+    panel = InkPanel(rec)
+    # 预启动（平板模式进入时）只加载模型，不弹面板 —— 首次点击时零等待
+    if os.environ.get("TEXP_INK_START_HIDDEN") == "1":
+        write_state(False)
+    else:
+        panel.show()
+
+    loop = GLib.MainLoop()
+
+    def on_close(*_):
+        write_state(False)
+        try:
+            os.unlink(PID_FILE)
+        except OSError:
+            pass
+        loop.quit()
+
+    def on_sig_toggle(*_):
+        panel.toggle()
+        return True
+
+    def on_sig_show(*_):
+        panel.show()
+        return True
+
+    def on_sig_quit(*_):
+        on_close()
+        return False
+
+    GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, on_sig_toggle)
+    GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR2, on_sig_show)
+    GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, on_sig_quit)
+    GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, on_sig_quit)
+
+    panel.win.connect("close-request", lambda *_: (on_close(), False)[1])
+    loop.run()
+    return 0
+
+
+def selftest() -> int:
+    """无头自检：把合成笔画灌进 InkArea，跑完整的 GUI 识别/上屏通路。"""
+    rec = Recognizer(model_path(DEFAULT_TIER), dict_path())
+    panel = InkPanel(rec)
+    committed: List[str] = []
+    panel._commit = lambda text, replace=False: committed.append(text)  # type: ignore
+
+    cases = {
+        "十": [[(120, 100, 1.0), (320, 100, 1.0)], [(220, 40, 1.0), (220, 200, 1.0)]],
+        "口": [
+            [(120, 60, 1.0), (300, 60, 1.0), (300, 220, 1.0), (120, 220, 1.0), (120, 60, 1.0)],
+        ],
+    }
+    results: List[Tuple[str, str]] = []
+    pending = list(cases.items())
+    loop = GLib.MainLoop()
+
+    def run_next():
+        if not pending:
+            loop.quit()
+            return False
+        expect, strokes = pending.pop(0)
+        panel.area.strokes = strokes
+        panel._last_cands = []
+        panel._on_ink_change()
+
+        def wait():
+            if panel._busy or not panel._last_cands:
+                return True
+            got = panel._last_cands[0][0]
+            cands = [c for c, _ in panel._last_cands[:3]]
+            results.append((expect, expect if expect in cands else ""))
+            # 合成笔画是“完美几何图形”，与形近字（如 □ vs 口）天然竞争，
+            # 所以判定标准是期望字落在前 3 候选内。
+            hit = expect in cands
+            print(f"  {'✅' if hit else '❌'} 期望 {expect!r} → 首选 {got!r} "
+                  f"(候选 {[c for c, _ in panel._last_cands[:5]]})")
+            GLib.timeout_add(50, run_next)
+            return False
+
+        GLib.timeout_add(80, wait)
+        return False
+
+    GLib.timeout_add(200, run_next)
+    GLib.timeout_add(20000, lambda: (print("❌ 自检超时"), loop.quit(), False)[2])
+    loop.run()
+
+    ok = all(e == g for e, g in results) and len(results) == len(cases)
+    print("自检结果:", "✅ 全部通过" if ok else "❌ 有失败")
+    return 0 if ok else 1
+
+
+# --------------------------------------------------------------------------
+# CLI
+# --------------------------------------------------------------------------
+def main(argv: List[str]) -> int:
+    cmd = argv[1] if len(argv) > 1 else "toggle"
+
+    if cmd in ("-h", "--help", "help"):
+        print(__doc__)
+        return 0
+    if cmd == "__run":
+        return run_panel()
+    if cmd == "__selftest":
+        return selftest()
+    if cmd == "status":
+        running = _alive(_read_pid() or 0)
+        print(read_state())
+        return 0 if running else 1
+    if cmd == "stop":
+        pid = _read_pid()
+        if pid and _alive(pid):
+            os.kill(pid, signal.SIGTERM)
+        write_state(False)
+        return 0
+
+    if cmd not in ("toggle", "show", "hide", "start-hidden"):
+        print(f"{APP}: 未知命令 {cmd!r}", file=sys.stderr)
+        return 2
+
+    running = _alive(_read_pid() or 0)
+    if cmd == "start-hidden":
+        if not running:
+            _spawn(hidden=True)
+        return 0
+    if cmd == "show":
+        if running and _signal_instance(signal.SIGUSR2):
+            return 0
+        _spawn()
+        return 0
+    if cmd == "hide":
+        if running and read_state() == "visible":
+            _signal_instance(signal.SIGUSR1)
+        write_state(False)
+        return 0
+    # toggle
+    if running and _signal_instance(signal.SIGUSR1):
+        return 0
+    if read_state() == "hidden" or not running:
+        _spawn()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

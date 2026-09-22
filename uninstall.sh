@@ -118,6 +118,22 @@ for src in "$REPO_ROOT"/scripts/texp-*; do
   remove_deprecated_file "$BIN_DIR/$(basename "$src")" "$src" "helper script"
 done
 
+# ------------------------------------------------------- handwriting model
+# v1.21: the PP-OCRv6 ONNX model + dictionary are downloaded artefacts owned
+# by the plugin (~21 MB), not user data — remove them on uninstall. Stop the
+# panel first so nothing is holding the model open.
+if [ -x "$BIN_DIR/texp-ink" ]; then
+  run "$BIN_DIR/texp-ink" hide 2>/dev/null || true
+  run "$BIN_DIR/texp-ink" stop 2>/dev/null || true
+fi
+INK_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/texp-ink"
+INK_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/texp-ink"
+if [ -d "$INK_DATA" ]; then
+  run rm -rf "$INK_DATA"
+  log "removed handwriting model dir: $INK_DATA"
+fi
+[ -d "$INK_STATE" ] && run rm -rf "$INK_STATE"
+
 # ------------------------------------------------------- voxtype post-process
 # Unwire texp-vtext from voxtype (restores the default = no post-processing)
 # and restart the daemon so the removal takes effect. The replacement table is
@@ -173,6 +189,7 @@ cat <<EOF
 Done. Remaining manual cleanup (install.sh installed these — remove only if you
 no longer want them):
   Packages: sudo pacman -Rns squeekboard iio-sensor-proxy python-evdev
+            gtk4-layer-shell python-onnxruntime-cpu python-numpy python-pillow
             fcitx5-rime librime noto-fonts-cjk wqy-microhei libcamera
   Residual state: PersistentProperties for "maxt-tablet-experience" under the
     Quickshell state dir (mode/rotation preference survives removal on purpose).
