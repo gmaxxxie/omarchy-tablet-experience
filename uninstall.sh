@@ -100,6 +100,18 @@ if [ -e "$SDDM_DROPIN" ] && grep -qF 'tablet-hyprland.lua' "$SDDM_DROPIN"; then
 else
   [ -e "$SDDM_DROPIN" ] && warn "$SDDM_DROPIN exists but is not ours — left in place"
 fi
+# The root-owned payload verifier (v1.22.0) is part of the install; remove it
+# and its build workspace too. Removals are by pathname only — nothing root
+# opens is attacker-influenceable (unlink never follows symlinks).
+HELPER=/usr/local/libexec/tablet-experience/texp-priv-install
+if [ -e "$HELPER" ]; then
+  run sudo rm -f "$HELPER"
+  log "removed root-owned verifier: $HELPER"
+fi
+if [ -d /usr/local/libexec/tablet-experience ]; then
+  run sudo rmdir --ignore-fail-on-non-empty /usr/local/libexec/tablet-experience \
+    || warn "/usr/local/libexec/tablet-experience not empty — left in place"
+fi
 # ------------------------------------------------------- helper scripts
 for src in "$REPO_ROOT"/scripts/texp-*; do
   [ -f "$src" ] || continue

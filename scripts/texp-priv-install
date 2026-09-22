@@ -1,0 +1,360 @@
+#!/usr/bin/python3
+# ============================================================================
+# texp-priv-install — root-owned verifier/installer for privileged payloads.
+#
+# WHY THIS EXISTS (security re-review, v1.22.0):
+# install.sh used `sudo install`/`sudo cp` straight from the user-writable
+# plugin checkout, and texp-install-wvkbd handed root a build output from a
+# user-owned temp tree. A same-UID process could swap any of those pathnames
+# during the sudo authentication window, before the root process opened them,
+# turning attacker content into a privileged login-screen executable/config.
+#
+# This helper is the ONLY path by which privileged files are installed. It is
+# installed root-owned (0755 root:root) and every expected SHA-256 below is
+# immutable: a non-root process cannot change the digests, so root only ever
+# installs the exact reviewed bytes.
+#
+#   * every source is opened with O_NOFOLLOW and must be a regular file;
+#   * the exact opened bytes are hashed and must equal the immutable expected
+#     digest — any mismatch aborts BEFORE anything is written;
+#   * the verified bytes are copied into a root-owned staging file, the staged
+#     bytes are re-verified, the destination is replaced atomically
+#     (os.replace), then the installed bytes are re-verified;
+#   * the wvkbd-deskintl build runs entirely inside a root-owned directory
+#     (download of the digest-pinned source archive, apply of the digest-
+#     pinned hide-key patch, build, install) so the FINAL artifact — not just
+#     its source archive — is bound to root and installed from root-owned
+#     bytes with the installed bytes re-verified against the built ones.
+#
+# USAGE (run via sudo; the verify*/check subcommands also run unprivileged):
+#   texp-priv-install payload <name> <source>        install a pinned payload
+#   texp-priv-install generated <name>               install embedded content
+#   texp-priv-install build-wvkbd <patch-src>        root-owned build + install
+#   texp-priv-install verify <name>                  read-only: check installed dest
+#   texp-priv-install verify-generated <name>        read-only: check embedded content
+#   texp-priv-install verify-wvkbd                   read-only: check greeter binary
+#   texp-priv-install check <name> <path>            read-only: hash <path> vs pinned
+#
+# Test hook (never honored in production): TEXP_PRIV_TEST_ROOT=<dir> prefixes
+# every DESTINATION (never the source verification). sudo strips environment
+# variables via env_reset, so production installs always use the real paths.
+# ============================================================================
+
+import hashlib
+import os
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+# --------------------------------------------------------------------------
+# Immutable expected digests (reviewed 2026-09-22). When a repo payload file
+# changes, its digest below must change IN THE SAME COMMIT — the digest is
+# what makes the root install safe, never the file contents by themselves.
+#   name: (repo path hint, destination, mode, sha256)
+# --------------------------------------------------------------------------
+PAYLOADS = {
+    "sddm-hypr-conf": (
+        "config/sddm/tablet-hyprland.lua",
+        "/usr/share/sddm/tablet-hyprland.lua",
+        0o644,
+        "e3a02c2e17010a7acb46fe215e345f03c3bbf6006783c155d31109be924d07f9",
+    ),
+    "texp-sddm-vk": (
+        "scripts/texp-sddm-vk",
+        "/usr/local/bin/texp-sddm-vk",
+        0o755,
+        "a9aa493a5cf791b517be56f32742aa5f46af6807fa8497e2ec2dd67c66defe3d",
+    ),
+}
+
+# Generated content lives only in this root-owned file; the digest is derived
+# from the literal, so the check is self-consistent but the CONTENT cannot be
+# changed by a non-root process.
+#   name: (destination, mode, literal content)
+GENERATED = {
+    "sddm-dropin": (
+        "/etc/sddm.conf.d/100-tablet.conf",
+        0o644,
+        "[Wayland]\n"
+        "CompositorCommand=start-hyprland -- --config /usr/share/sddm/tablet-hyprland.lua\n"
+        "\n",
+    ),
+}
+
+# wvkbd build parameters — the archive and the hide-key patch are digest-
+# pinned; the build runs as root in a root-owned directory so the final
+# binary is bound to root (a same-UID process cannot touch it at any point).
+WVKBD = {
+    "version": "0.20",
+    "url": "https://git.sr.ht/~proycon/wvkbd/archive/v0.20.tar.gz",
+    "archive_sha256": "330e7d41e2ccf3f984af701c0d055d919cff66710dfe05ce9d77e4ae6e1adc16",
+    "patch_sha256": "48e60835028c4287b51f284248910bf8d5cd6f8ef2e377d474cbd87fb048a989",
+    "max_bytes": 10 * 1024 * 1024,
+    "build_base": "/usr/local/libexec/tablet-experience",
+}
+
+CURL = [
+    "curl", "-fsSL",
+    "--proto", "=https", "--tlsv1.2",
+    "--connect-timeout", "15",
+    "--max-time", "180",
+]
+
+MAX_PAYLOAD = 2 * 1024 * 1024       # static payloads are small
+MAX_BUILD_BINARY = 64 * 1024 * 1024  # wvkbd-deskintl is ~470 KB; generous cap
+
+
+def log(msg):
+    print(f"==> {msg}")
+
+
+def die(msg):
+    print(f"texp-priv-install: ERROR: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def dest_for(path):
+    """Test hook: TEXP_PRIV_TEST_ROOT prefixes destinations. sudo's
+    env_reset strips this variable, so production always uses real paths."""
+    test_root = os.environ.get("TEXP_PRIV_TEST_ROOT", "")
+    if not test_root:
+        return path
+    return os.path.join(test_root, path.lstrip("/"))
+
+
+def read_verified(path, expected_sha, what, limit=MAX_PAYLOAD):
+    """Open with O_NOFOLLOW, require a regular file, hash the EXACT opened
+    bytes. Returns (bytes, hexdigest). Any mismatch or non-regular file
+    aborts — nothing is ever written from unverified bytes."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        die(f"{what}: not found: {path}")
+    except OSError as exc:
+        die(f"{what}: cannot open {path} (O_NOFOLLOW): {exc}")
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            die(f"{what}: not a regular file (refusing): {path}")
+        data = b""
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break
+            data += chunk
+            if len(data) > limit:
+                die(f"{what}: unexpectedly large: {path}")
+    finally:
+        os.close(fd)
+    actual = hashlib.sha256(data).hexdigest()
+    if expected_sha is not None and actual != expected_sha:
+        die(
+            f"{what}: SHA-256 MISMATCH for {path}\n"
+            f"  expected: {expected_sha}\n"
+            f"  got:      {actual}\n"
+            f"  refusing to install (the file may have been tampered with)"
+        )
+    return data, actual
+
+
+def write_all(fd, data):
+    view = memoryview(data)
+    while view:
+        written = os.write(fd, view)
+        view = view[written:]
+    os.fsync(fd)
+
+
+def atomic_install(data, dest, mode, what, expected_sha=None,
+                   verify_against=None, backup=True):
+    """Copy the verified bytes into a root-owned staging file in the
+    destination directory, re-verify, then os.replace() atomically. Backs up
+    a differing existing destination first; re-verifies the installed bytes."""
+    dest = dest_for(dest)
+    dest_dir = os.path.dirname(dest)
+    os.makedirs(dest_dir, exist_ok=True)
+
+    if backup and os.path.lexists(dest):
+        try:
+            current, _ = read_verified(dest, None, f"{what}: existing {dest}",
+                                       limit=MAX_BUILD_BINARY)
+            differs = current != data
+        except SystemExit:
+            # Not a regular file (e.g. a symlink or FIFO at the destination):
+            # move it aside by rename — we never follow it.
+            differs = True
+        if differs:
+            bak = f"{dest}.bak.{time.strftime('%Y%m%d%H%M%S')}"
+            os.replace(dest, bak)
+            os.chmod(bak, 0o600)
+            log(f"backup: {dest} -> {bak}")
+
+    stage = os.path.join(dest_dir, f".texp-stage-{os.path.basename(dest)}-{os.getpid()}")
+    fd = os.open(stage, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        write_all(fd, data)
+    finally:
+        os.close(fd)
+    os.chmod(stage, mode)
+    os.replace(stage, dest)  # atomic
+
+    installed, _ = read_verified(dest, None, f"{what}: installed {dest}",
+                                 limit=MAX_BUILD_BINARY)
+    check = verify_against if verify_against is not None else expected_sha
+    if check is not None and hashlib.sha256(installed).hexdigest() != check:
+        die(f"{what}: installed bytes do not match the verified payload at {dest}")
+    log(f"installed: {dest} ({mode:04o})")
+
+
+# ------------------------------------------------------------------ commands
+
+def cmd_payload(name, source):
+    if name not in PAYLOADS:
+        die(f"unknown payload: {name} (known: {', '.join(PAYLOADS)})")
+    hint, dest, mode, expected = PAYLOADS[name]
+    data, _ = read_verified(source, expected, f"payload {name}")
+    atomic_install(data, dest, mode, f"payload {name}", expected_sha=expected)
+
+
+def cmd_generated(name):
+    if name not in GENERATED:
+        die(f"unknown generated payload: {name}")
+    dest, mode, content = GENERATED[name]
+    data = content.encode()
+    atomic_install(data, dest, mode, f"generated {name}",
+                   expected_sha=hashlib.sha256(data).hexdigest())
+
+
+def cmd_build_wvkbd(patch_src):
+    base = dest_for(WVKBD["build_base"])
+    os.makedirs(base, exist_ok=True)
+    if os.stat(base).st_uid != 0 and not os.environ.get("TEXP_PRIV_TEST_ROOT"):
+        die("build base is not root-owned — refusing to build there")
+    build = tempfile.mkdtemp(prefix="wvkbd-build-", dir=base)  # 0700
+    try:
+        tarball = os.path.join(build, "wvkbd.tar.gz")
+        log(f"downloading wvkbd v{WVKBD['version']} ({WVKBD['url']})")
+        subprocess.run(
+            CURL + ["--max-filesize", str(WVKBD["max_bytes"]), "-o", tarball,
+                    WVKBD["url"]],
+            check=True,
+        )
+        read_verified(tarball, WVKBD["archive_sha256"], "wvkbd source archive",
+                      limit=WVKBD["max_bytes"])
+        log("SHA-256 verified (source archive)")
+        subprocess.run(["tar", "-xzf", tarball, "-C", build], check=True)
+
+        src = os.path.join(build, f"wvkbd-v{WVKBD['version']}")
+        if not os.path.isdir(src):
+            candidates = [d for d in os.listdir(build) if d.startswith("wvkbd")]
+            if len(candidates) != 1:
+                die("could not locate the extracted wvkbd source directory")
+            src = os.path.join(build, candidates[0])
+
+        patch_data, _ = read_verified(patch_src, WVKBD["patch_sha256"],
+                                      "wvkbd-hide-key.patch")
+        patch_file = os.path.join(build, "hide-key.patch")
+        with open(patch_file, "wb") as pf:
+            pf.write(patch_data)
+        log("applying hide-key ▼ patch (digest-verified)")
+        with open(patch_file, "rb") as pf:
+            subprocess.run(["patch", "-p1"], cwd=src, stdin=pf, check=True)
+
+        log("building deskintl layout (Ctrl/Super/Alt/Shift + F-keys + numbers + arrows + ▼)")
+        subprocess.run(["make", "LAYOUT=deskintl"], cwd=src, check=True)
+
+        binary = os.path.join(src, "wvkbd-deskintl")
+        data, built_sha = read_verified(binary, None, "wvkbd-deskintl build output",
+                                        limit=MAX_BUILD_BINARY)
+        log(f"built wvkbd-deskintl (sha256 {built_sha})")
+        # The final artifact is bound here: bytes produced in the root-owned
+        # build tree are what get installed, and the installed bytes are
+        # re-verified against them.
+        atomic_install(data, "/usr/local/bin/wvkbd-deskintl", 0o755,
+                       "wvkbd-deskintl (SDDM greeter)",
+                       verify_against=built_sha, backup=False)
+    finally:
+        shutil.rmtree(build, ignore_errors=True)
+
+
+def cmd_verify(name):
+    if name not in PAYLOADS:
+        die(f"unknown payload: {name}")
+    hint, dest, mode, expected = PAYLOADS[name]
+    _, actual = read_verified(dest_for(dest), expected, f"verify {name}",
+                              limit=MAX_BUILD_BINARY)
+    print(f"OK {dest}: sha256 {actual} (matches the pinned digest)")
+
+
+def cmd_verify_generated(name):
+    if name not in GENERATED:
+        die(f"unknown generated payload: {name}")
+    dest, mode, content = GENERATED[name]
+    _, actual = read_verified(dest_for(dest),
+                              hashlib.sha256(content.encode()).hexdigest(),
+                              f"verify-generated {name}",
+                              limit=MAX_BUILD_BINARY)
+    print(f"OK {dest}: sha256 {actual} (matches the pinned content)")
+
+
+def cmd_verify_wvkbd():
+    dest = dest_for("/usr/local/bin/wvkbd-deskintl")
+    data, _ = read_verified(dest, None, "verify-wvkbd",
+                            limit=MAX_BUILD_BINARY)
+    if b"\xe2\x96\xbc" not in data:
+        die(f"{dest}: missing the hide-key ▼ collapse marker — not the patched build")
+    print(f"OK {dest}: regular file, patched build with ▼ collapse key")
+
+
+def cmd_check(name, path):
+    if name not in PAYLOADS:
+        die(f"unknown payload: {name}")
+    hint, dest, mode, expected = PAYLOADS[name]
+    _, actual = read_verified(path, expected, f"check {name}")
+    print(f"OK {path}: sha256 {actual} (matches the pinned digest for {name})")
+
+
+def main(argv):
+    if not argv:
+        die("usage: texp-priv-install payload|generated|build-wvkbd|verify|verify-generated|verify-wvkbd|check …")
+    sub = argv[0]
+    try:
+        if sub == "payload":
+            if len(argv) != 3:
+                die("usage: texp-priv-install payload <name> <source>")
+            cmd_payload(argv[1], argv[2])
+        elif sub == "generated":
+            if len(argv) != 2:
+                die("usage: texp-priv-install generated <name>")
+            cmd_generated(argv[1])
+        elif sub == "build-wvkbd":
+            if len(argv) != 2:
+                die("usage: texp-priv-install build-wvkbd <patch-source>")
+            cmd_build_wvkbd(argv[1])
+        elif sub == "verify":
+            if len(argv) != 2:
+                die("usage: texp-priv-install verify <name>")
+            cmd_verify(argv[1])
+        elif sub == "verify-generated":
+            if len(argv) != 2:
+                die("usage: texp-priv-install verify-generated <name>")
+            cmd_verify_generated(argv[1])
+        elif sub == "verify-wvkbd":
+            cmd_verify_wvkbd()
+        elif sub == "check":
+            if len(argv) != 3:
+                die("usage: texp-priv-install check <name> <path>")
+            cmd_check(argv[1], argv[2])
+        else:
+            die(f"unknown subcommand: {sub}")
+    except SystemExit:
+        raise
+    except Exception as exc:  # noqa: BLE001 — always fail safe with a message
+        die(f"unexpected failure: {exc!r}")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

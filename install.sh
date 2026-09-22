@@ -113,24 +113,28 @@ if [ "$VERIFY" -eq 1 ]; then
     bad "lock-screen VK layerrules missing — re-run install.sh"
   fi
 
-  # login-screen VK (v1.17): derived greeter compositor + gate + sddm drop-in
-  if [ -f /usr/share/sddm/tablet-hyprland.lua ] \
-      && cmp -s /usr/share/sddm/tablet-hyprland.lua "$REPO_ROOT/config/sddm/tablet-hyprland.lua"; then
-    ok "SDDM greeter compositor config: tablet-hyprland.lua"
+  # login-screen VK (v1.17): derived greeter compositor + gate + sddm drop-in,
+  # verified against the immutable digests embedded in the root-owned verifier
+  # (no sudo needed — the files are world-readable; the digests are the check).
+  HELPER=/usr/local/libexec/tablet-experience/texp-priv-install
+  if [ ! -x "$HELPER" ]; then
+    bad "root-owned verifier missing ($HELPER) — re-run install.sh (sudo needed)"
   else
-    bad "SDDM greeter compositor config missing/different — re-run install.sh (sudo needed)"
-  fi
-  if [ -x /usr/local/bin/texp-sddm-vk ] \
-      && cmp -s /usr/local/bin/texp-sddm-vk "$REPO_ROOT/scripts/texp-sddm-vk"; then
-    ok "/usr/local/bin/texp-sddm-vk (login-screen VK gate)"
-  else
-    bad "/usr/local/bin/texp-sddm-vk missing/different — re-run install.sh (sudo needed)"
-  fi
-  if [ -f /etc/sddm.conf.d/100-tablet.conf ] \
-      && grep -qF 'tablet-hyprland.lua' /etc/sddm.conf.d/100-tablet.conf; then
-    ok "sddm drop-in 100-tablet.conf (greeter compositor -> tablet-hyprland.lua)"
-  else
-    bad "sddm drop-in 100-tablet.conf missing — re-run install.sh (sudo needed)"
+    if "$HELPER" verify sddm-hypr-conf >/dev/null 2>&1; then
+      ok "SDDM greeter compositor config: tablet-hyprland.lua (digest-verified)"
+    else
+      bad "SDDM greeter compositor config missing/different — re-run install.sh (sudo needed)"
+    fi
+    if "$HELPER" verify texp-sddm-vk >/dev/null 2>&1; then
+      ok "/usr/local/bin/texp-sddm-vk (login-screen VK gate, digest-verified)"
+    else
+      bad "/usr/local/bin/texp-sddm-vk missing/different — re-run install.sh (sudo needed)"
+    fi
+    if "$HELPER" verify-generated sddm-dropin >/dev/null 2>&1; then
+      ok "sddm drop-in 100-tablet.conf (greeter compositor -> tablet-hyprland.lua)"
+    else
+      bad "sddm drop-in 100-tablet.conf missing/different — re-run install.sh (sudo needed)"
+    fi
   fi
 
   # plugin enabled by omarchy
@@ -231,8 +235,7 @@ if [ "$VERIFY" -eq 1 ]; then
   # label bytes (E2 96 BC) present in the binary.
   if [ -x "$BIN_DIR/wvkbd-deskintl" ] \
       && grep -l $'\xE2\x96\xBC' "$BIN_DIR/wvkbd-deskintl" >/dev/null 2>&1 \
-      && [ -x /usr/local/bin/wvkbd-deskintl ] \
-      && grep -l $'\xE2\x96\xBC' /usr/local/bin/wvkbd-deskintl >/dev/null 2>&1; then
+      && "$HELPER" verify-wvkbd >/dev/null 2>&1; then
     ok "wvkbd-deskintl present with ▼ hide-key (user + greeter copies)"
   else
     warn "wvkbd-deskintl hide-key build missing — run $BIN_DIR/texp-install-wvkbd (squeekboard fallback stays)"
@@ -454,34 +457,67 @@ append_if_missing "$HYPR_DIR/hyprland.lua" 'require("hypr.tablet-experience")'
 # a late /etc/sddm.conf.d drop-in (100- sorts after omarchy's 99-, so it
 # wins). SDDM's own `InputMethod=qtvirtualkeyboard` does NOT work here: the
 # greeter is Wayland and sddm 0.21 disables it there on purpose.
+#
+# SECURITY (v1.22.0): every privileged payload below is installed ONLY via
+# the root-owned verifier texp-priv-install. It carries immutable SHA-256
+# digests, opens each source with O_NOFOLLOW, verifies the exact opened
+# bytes, stages descriptor-bound under root, and renames atomically — a
+# same-UID process racing the sudo prompt cannot swap any payload.
 log "wiring login-screen virtual keyboard (SDDM greeter, tablet mode)"
-SDDM_HYPR_CONF=/usr/share/sddm/tablet-hyprland.lua
-if [ -f "$REPO_ROOT/config/sddm/tablet-hyprland.lua" ]; then
-  if [ -e "$SDDM_HYPR_CONF" ] && ! cmp -s "$SDDM_HYPR_CONF" "$REPO_ROOT/config/sddm/tablet-hyprland.lua"; then
-    warn "backing up existing $SDDM_HYPR_CONF (differs from repo copy)"
-    run sudo cp -a "$SDDM_HYPR_CONF" "$SDDM_HYPR_CONF.bak.$(date +%Y%m%d%H%M%S)"
+HELPER=/usr/local/libexec/tablet-experience/texp-priv-install
+
+# Bootstrap/upgrade the root-owned verifier. The source is opened with
+# O_NOFOLLOW and verified against the reviewed digest INSIDE the root
+# process, so even the bootstrap is race-proof. Keep BOOTSTRAP_HELPER_SHA256
+# in sync with `sha256sum scripts/texp-priv-install`.
+BOOTSTRAP_HELPER_SHA256="1064c655b2962b3922947aaf86e979c8f99ac7cc4eba62651c10fe46f3247007"
+if [ ! -x "$HELPER" ] || ! cmp -s "$HELPER" "$REPO_ROOT/scripts/texp-priv-install"; then
+  if [ "$DRY_RUN" -eq 1 ]; then
+    printf '    would run: sudo python3 bootstrap %s (digest-checked)\n' "$HELPER"
+  else
+    log "installing root-owned payload verifier: $HELPER"
+    sudo python3 - "$REPO_ROOT/scripts/texp-priv-install" <<PYEOF
+import hashlib, os, stat, sys
+src = sys.argv[1]
+expected = "$BOOTSTRAP_HELPER_SHA256"
+fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
+try:
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode):
+        sys.exit(f"texp-priv-install bootstrap: source is not a regular file: {src}")
+    data = b""
+    while True:
+        chunk = os.read(fd, 65536)
+        if not chunk:
+            break
+        data += chunk
+finally:
+    os.close(fd)
+actual = hashlib.sha256(data).hexdigest()
+if actual != expected:
+    sys.exit(f"texp-priv-install bootstrap: SHA-256 MISMATCH (expected {expected}, got {actual}) — refusing to install")
+os.makedirs("/usr/local/libexec/tablet-experience", exist_ok=True)
+stage = f"/usr/local/libexec/tablet-experience/.stage-texp-priv-install-{os.getpid()}"
+sfd = os.open(stage, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+try:
+    view = memoryview(data)
+    while view:
+        n = os.write(sfd, view)
+        view = view[n:]
+    os.fsync(sfd)
+finally:
+    os.close(sfd)
+os.chmod(stage, 0o755)
+os.replace(stage, "/usr/local/libexec/tablet-experience/texp-priv-install")
+print("installed: /usr/local/libexec/tablet-experience/texp-priv-install (root-owned, digest-verified)")
+PYEOF
+    [ "$(stat -c '%U' "$HELPER")" = root ] && log "verifier owner: root" || { warn "$HELPER not root-owned"; exit 1; }
   fi
-  run sudo install -m 0644 "$REPO_ROOT/config/sddm/tablet-hyprland.lua" "$SDDM_HYPR_CONF"
-  log "install: $SDDM_HYPR_CONF"
-else
-  warn "config/sddm/tablet-hyprland.lua missing from repo — skipping"
 fi
-run sudo install -m 0755 "$REPO_ROOT/scripts/texp-sddm-vk" /usr/local/bin/texp-sddm-vk
-log "install: /usr/local/bin/texp-sddm-vk"
-SDDM_DROPIN=/etc/sddm.conf.d/100-tablet.conf
-SDDM_DROPIN_CONTENT="[Wayland]
-CompositorCommand=start-hyprland -- --config /usr/share/sddm/tablet-hyprland.lua
-"
-if [ -f "$SDDM_DROPIN" ] && grep -qF 'tablet-hyprland.lua' "$SDDM_DROPIN"; then
-  log "sddm drop-in already present: $SDDM_DROPIN"
-else
-  if [ -e "$SDDM_DROPIN" ]; then
-    warn "backing up existing $SDDM_DROPIN (differs from ours)"
-    run sudo cp -a "$SDDM_DROPIN" "$SDDM_DROPIN.bak.$(date +%Y%m%d%H%M%S)"
-  fi
-  run sh -c 'printf "%s\n" "$1" | sudo tee "$2" >/dev/null' _ "$SDDM_DROPIN_CONTENT" "$SDDM_DROPIN"
-  log "install: $SDDM_DROPIN"
-fi
+
+run sudo "$HELPER" payload sddm-hypr-conf "$REPO_ROOT/config/sddm/tablet-hyprland.lua"
+run sudo "$HELPER" payload texp-sddm-vk "$REPO_ROOT/scripts/texp-sddm-vk"
+run sudo "$HELPER" generated sddm-dropin
 
 # ------------------------------------------- squeekboard layout (v1.7)
 # Give the virtual keyboard a number row for Chinese IME candidate
