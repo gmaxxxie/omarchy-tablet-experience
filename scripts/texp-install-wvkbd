@@ -32,6 +32,13 @@ set -euo pipefail
 WIDTH="${OMARCHY_VK_HEIGHT_LANDSCAPE:-350}"
 VERSION="0.20"
 URL="https://git.sr.ht/~proycon/wvkbd/archive/v${VERSION}.tar.gz"
+# Pinned SHA-256 of the exact archive bytes at $URL (reviewed 2026-09-22).
+# VERSION and SHA256 must change TOGETHER: the digest is verified before
+# extraction and any mismatch aborts before build/install (verify_archive).
+SHA256="330e7d41e2ccf3f984af701c0d055d919cff66710dfe05ce9d77e4ae6e1adc16"
+# Response-size cap (10 MiB): curl exits 63 on a larger body; the digest is
+# the authoritative integrity gate.
+MAX_BYTES="10485760"
 BIN="${BIN_DIR:-$HOME/.local/bin}"
 SYSBIN="/usr/local/bin"
 # The hide-key patch ships in the repo (config/wvkbd/) and install.sh installs
@@ -47,6 +54,20 @@ DRY_RUN=0
 log()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mWARN:\033[0m %s\n' "$*" >&2; }
 run()  { if [ "$DRY_RUN" -eq 1 ]; then printf '    would run: %s\n' "$*"; else "$@"; fi }
+
+# Verify the downloaded archive byte-for-byte before anything is extracted.
+verify_archive() {
+  local file="$1" want="$2" got
+  got="$(sha256sum "$file" 2>/dev/null | awk '{print $1}')"
+  if [ "$got" != "$want" ]; then
+    warn "SHA-256 MISMATCH for $URL"
+    warn "  expected: $want"
+    warn "  got:      ${got:-<unreadable>}"
+    warn "refusing to extract, build or install — download may be tampered with"
+    return 1
+  fi
+  log "SHA-256 verified ($got)"
+}
 
 [ "$DRY_RUN" -eq 1 ] && log "DRY RUN — nothing will be changed"
 
@@ -74,7 +95,7 @@ if [ "${#missing[@]}" -gt 0 ]; then
   warn "until then texp-vk will fall back to squeekboard"
   [ "$DRY_RUN" -eq 1 ] || exit 1
 fi
-for tool in make cc curl; do
+for tool in make cc curl sha256sum; do
   command -v "$tool" >/dev/null 2>&1 || { warn "missing tool: $tool"; exit 1; }
 done
 
@@ -82,7 +103,16 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 log "downloading wvkbd v${VERSION} ($URL)"
-run curl -fsSL -o "$TMP/wvkbd.tar.gz" "$URL"
+# --fail + --connect-timeout/--max-time bound the transfer; --max-filesize
+# rejects oversized responses (exit 63). The SHA-256 digest is the integrity
+# gate: any mismatch aborts before tar/build/install.
+run curl -fsSL --proto '=https' --tlsv1.2 \
+     --connect-timeout 15 --max-time 180 \
+     --max-filesize "$MAX_BYTES" \
+     -o "$TMP/wvkbd.tar.gz" "$URL"
+if [ "$DRY_RUN" -ne 1 ]; then
+  verify_archive "$TMP/wvkbd.tar.gz" "$SHA256" || exit 1
+fi
 run tar -xzf "$TMP/wvkbd.tar.gz" -C "$TMP"
 SRC="$(find "$TMP" -maxdepth 1 -type d -name 'wvkbd*' | head -1)"
 
