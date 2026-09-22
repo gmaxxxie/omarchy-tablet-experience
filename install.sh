@@ -65,6 +65,30 @@ log()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mWARN:\033[0m %s\n' "$*" >&2; }
 run()  { if [ "$DRY_RUN" -eq 1 ]; then printf '    would run: %s\n' "$*"; else "$@"; fi }
 
+# ------------------------------------------------------- session environment
+# Some invocations (coding agents, ssh, wrapper scripts) start without the
+# graphical session environment. `systemctl --user` / `gsettings` then cannot
+# reach the user bus, so the checks and installs below produce false failures
+# (e.g. "voxtype service not running" while the daemon is up). Default the
+# standard per-user paths when they are missing and the socket exists.
+UID_NUM="$(id -u)"
+if [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$UID_NUM" ]; then
+  XDG_RUNTIME_DIR="/run/user/$UID_NUM"; export XDG_RUNTIME_DIR
+fi
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/bus" ]; then
+  DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"; export DBUS_SESSION_BUS_ADDRESS
+fi
+# hyprctl also needs the compositor instance id; discover the live one from the
+# runtime dir so a bare-env --verify runs the real keybind check (the guard at
+# the check falls back to WARN when the compositor is not running).
+if [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && [ -d "${XDG_RUNTIME_DIR:-/nonexistent}/hypr" ]; then
+  _inst="$(ls -1dt "${XDG_RUNTIME_DIR}"/hypr/*/ 2>/dev/null | head -1)"
+  if [ -n "$_inst" ]; then
+    HYPRLAND_INSTANCE_SIGNATURE="$(basename "$_inst")"; export HYPRLAND_INSTANCE_SIGNATURE
+  fi
+  unset _inst
+fi
+
 # ------------------------------------------------------------------- verify
 # Post-upgrade self-check: reports every dependency that broke after an
 # Omarchy/Hyprland update WITHOUT touching anything. Exit 1 if anything failed.
@@ -261,6 +285,8 @@ if [ "$VERIFY" -eq 1 ]; then
     fi
     if systemctl --user is-active voxtype.service >/dev/null 2>&1; then
       ok "voxtype service running (post-processing active)"
+    elif pgrep -x voxtype >/dev/null 2>&1; then
+      warn "voxtype process is running, but systemctl --user could not reach the user bus (check the session environment)"
     else
       bad "voxtype service not running — systemctl --user start voxtype"
     fi
@@ -621,9 +647,11 @@ if command -v voxtype >/dev/null 2>&1; then
   fi
   run voxtype config set output.post_process.command "$BIN_DIR/texp-vtext"
   log "voxtype output.post_process.command -> $BIN_DIR/texp-vtext"
-  # post_process needs a daemon restart; it is a user service, restart in place.
-  run systemctl --user restart voxtype
-  log "restarted voxtype.service (post-processing active)"
+  # post_process needs a daemon restart; it is a user service, restart in
+  # place. A bus hiccup must not abort the install — the wiring above is done.
+  run systemctl --user restart voxtype 2>/dev/null \
+    || warn "could not restart voxtype via systemctl --user — run: systemctl --user restart voxtype"
+  log "voxtype post-processing wired"
 else
   warn "voxtype not installed — skipping post-process wiring (install voxtype first)"
 fi
