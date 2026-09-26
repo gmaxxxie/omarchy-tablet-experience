@@ -13,9 +13,19 @@ texp-ink — 触控笔 / 手指 手写输入面板（Tablet Experience 插件组
   texp-ink                  切换显示/隐藏
   texp-ink toggle|show|hide 同上的显式形式
   texp-ink start-hidden     预启动（加载模型）但不显示，供平板模式预载
+  texp-ink tier [tiny|small|medium]  查看/切换识别模型档位（写入配置）
   texp-ink status           打印 visible / hidden
   texp-ink __run            内部：前台运行面板（由 toggle/show 自动拉起）
   texp-ink __selftest       内部：GUI 通路的无头自检
+
+配置文件:
+  ~/.config/texp-ink/config      key = value（环境变量优先于它）
+      tier = small|tiny|medium   识别模型档位
+      auto = 1|0                 停笔后自动上屏 / 手动选字
+      idle_ms = 700              停笔多久开始识别
+      min_conf = 0.60            自动上屏的最低置信度
+      w = 620 / h = 450          面板尺寸
+      stroke_w = 8               识别时的笔迹粗细
 
 环境变量:
   TEXP_INK_TIER       模型档位 tiny|small|medium（默认 small）
@@ -82,21 +92,83 @@ STATE_FILE = os.path.join(STATE_DIR, "visible")
 GEOM_FILE = os.path.join(STATE_DIR, "geometry")
 PID_FILE = os.path.join(STATE_DIR, "pid")
 
-# 面板默认尺寸 / 默认位置（右侧、垂直居中，可拖动，位置持久化）
-PANEL_W = int(os.environ.get("TEXP_INK_W", "620"))
-PANEL_H = int(os.environ.get("TEXP_INK_H", "450"))
-EDGE_GAP = 14
-
 DATA_DIR = os.path.join(
     os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), APP
 )
 MODEL_DIR = os.path.join(DATA_DIR, "models")
+CONFIG_FILE = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), APP, "config"
+)
 
-DEFAULT_TIER = os.environ.get("TEXP_INK_TIER", "small")
-IDLE_MS = int(os.environ.get("TEXP_INK_IDLE_MS", "700"))
-AUTO_COMMIT = os.environ.get("TEXP_INK_AUTO", "1") not in ("0", "false", "no")
-MIN_CONF = float(os.environ.get("TEXP_INK_MIN_CONF", "0.60"))
-STROKE_W = float(os.environ.get("TEXP_INK_STROKE_W", "8"))
+# --------------------------------------------------------------------------
+# 配置：~/.config/texp-ink/config（key = value），环境变量优先。
+# 例：  tier = medium / auto = 0 / idle_ms = 900 / min_conf = 0.5
+# 用 `texp-ink tier medium` 可一键切换识别模型档位。
+# --------------------------------------------------------------------------
+def _load_config() -> dict:
+    cfg: dict = {}
+    try:
+        with open(CONFIG_FILE, encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.split("#", 1)[0].strip()
+                if not line or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                cfg[k.strip().lower()] = v.strip()
+    except OSError:
+        pass
+    return cfg
+
+
+_CFG = _load_config()
+
+
+def _cfg(key: str, env: str, default: str) -> str:
+    return os.environ.get(env) or _CFG.get(key) or default
+
+
+def write_config_key(key: str, value: str) -> None:
+    """在 ~/.config/texp-ink/config 里设置/覆盖一个键（保留其它键与注释）。"""
+    os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+    lines: List[str] = []
+    seen = False
+    try:
+        with open(CONFIG_FILE, encoding="utf-8") as fh:
+            for raw in fh:
+                s = raw.strip()
+                hit = (
+                    s
+                    and not s.startswith("#")
+                    and "=" in s
+                    and s.split("=", 1)[0].strip().lower() == key
+                )
+                if hit:
+                    lines.append(f"{key} = {value}\n")
+                    seen = True
+                else:
+                    lines.append(raw if raw.endswith("\n") else raw + "\n")
+    except OSError:
+        pass
+    if not seen:
+        lines.append(f"{key} = {value}\n")
+    tmp = CONFIG_FILE + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.writelines(lines)
+    os.replace(tmp, CONFIG_FILE)
+
+
+# 面板尺寸 / 默认位置（右侧、垂直居中，可拖动，位置持久化）
+PANEL_W = int(_cfg("w", "TEXP_INK_W", "620"))
+PANEL_H = int(_cfg("h", "TEXP_INK_H", "450"))
+EDGE_GAP = 14
+
+# 模型档位：small 实测最快也最准（见 DEVELOPMENT.md 第 26 行的对比）
+DEFAULT_TIER = _cfg("tier", "TEXP_INK_TIER", "small")
+IDLE_MS = int(_cfg("idle_ms", "TEXP_INK_IDLE_MS", "700"))
+AUTO_COMMIT = _cfg("auto", "TEXP_INK_AUTO", "1") not in ("0", "false", "no")
+MIN_CONF = float(_cfg("min_conf", "TEXP_INK_MIN_CONF", "0.60"))
+STROKE_W = float(_cfg("stroke_w", "TEXP_INK_STROKE_W", "8"))
 DEBUG = os.environ.get("TEXP_INK_DEBUG", "") not in ("", "0")
 
 Point = Tuple[float, float, float]  # x, y, pressure
@@ -666,6 +738,7 @@ class InkPanel:
 
         self._update_auto_btn()
         self._update_mode_btn()
+        self.hint.set_label(f"模型 {DEFAULT_TIER}")
 
     # ---- 面板位置（可拖动 + 持久化） ----
     def _monitor_size(self) -> Tuple[int, int]:
@@ -1062,6 +1135,27 @@ def main(argv: List[str]) -> int:
         return run_panel()
     if cmd == "__selftest":
         return selftest()
+    if cmd == "tier":
+        tiers = ("tiny", "small", "medium")
+        want = argv[2].strip().lower() if len(argv) > 2 else ""
+        if not want:
+            print(f"{APP}: 当前模型档位 = {DEFAULT_TIER}")
+            print(f"{APP}: 用法: texp-ink tier {'|'.join(tiers)}")
+            return 0
+        if want not in tiers:
+            print(f"{APP}: 未知档位 {want!r}（可选 {'|'.join(tiers)}）", file=sys.stderr)
+            return 2
+        if not os.path.exists(model_path(want)):
+            print(f"{APP}: 模型文件不存在: {model_path(want)}", file=sys.stderr)
+            print(f"{APP}: 请先下载 ppocrv6_{want}_rec.onnx 到 {MODEL_DIR}", file=sys.stderr)
+            return 3
+        write_config_key("tier", want)
+        # 重启常驻面板，让新模型在下次打开时生效
+        pid = _read_pid()
+        if pid and _alive(pid):
+            os.kill(pid, signal.SIGTERM)
+        print(f"{APP}: 档位已切换为 {want}（面板已重启，下次打开用新模型）")
+        return 0
     if cmd == "status":
         running = _alive(_read_pid() or 0)
         print(read_state())

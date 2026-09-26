@@ -68,7 +68,12 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   greedy-CTC line decoding (English words / connected writing); 清除 / 退格 /
   空格 / 回车 / 撤销 are one tap away. The panel is **draggable by its title
   grip (✥)** and **starts on the right side, vertically centred**; wherever you
-  leave it is remembered. Mutually exclusive with the virtual
+  leave it is remembered. The recognition model is switchable —
+  `texp-ink tier tiny|small|medium` (or `tier = ...` in
+  `~/.config/texp-ink/config`, which also exposes `auto`, `idle_ms`,
+  `min_conf`, `w`, `h`, `stroke_w`); **`small` measured fastest and most
+  accurate, so it is the default** and `medium` is kept for A/B testing.
+  Mutually exclusive with the virtual
   keyboard and voice input, and pre-started hidden on tablet entry so the
   first tap is instant. Stylus pressure modulates the ink width, and the
   Bluetooth-free AES pen's eraser end works in normal drawing apps.
