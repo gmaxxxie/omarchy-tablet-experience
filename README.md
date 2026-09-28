@@ -97,12 +97,14 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   (EN / 中 / …) and toggles it with one tap (`fcitx5-remote -t`) — the
   convenient EN⇄中 switch the hidden fcitx5 indicator could not provide.
 - **Voice input (v1.5, ⏎ v1.6, Delete/Clear v1.10, direction pad v1.11,
-  tablet mode)** — a **mic icon** in the tablet bar opens a bottom hold-to-talk
-  button (tap the icon again to close it). Press & hold the button to dictate
-  through **voxtype** (local ASR, no cloud), release to transcribe and type
-  the text at your cursor — full CJK support via `wtype`. A neat English
-  button row underneath offers **Delete** (BackSpace), **Clear** (select-all
-  + delete) and **Enter** (Return) to fix or submit the dictated line, and a
+  Clear-in-terminals v1.25.1, tablet mode)** — a **mic icon** in the tablet
+  bar opens a bottom hold-to-talk button (tap the icon again to close it).
+  Press & hold the button to dictate through **voxtype** (local ASR, no
+  cloud), release to transcribe and type the text at your cursor — full CJK
+  support via `wtype`. A neat English button row underneath offers **Delete**
+  (BackSpace), **Clear** (empties the input — select-all + delete in a text
+  field, readline `Ctrl+A`/`Ctrl+K` kill-line in a terminal) and **Enter**
+  (Return) to fix or submit the dictated line, and a
   **left-side direction pad (↑↓←→)** moves the caret for editing. Voice input
   and the virtual keyboard are **mutually exclusive** (v1.11): opening one
   closes the other. Live recording / transcribing state is shown on the

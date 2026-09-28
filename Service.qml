@@ -169,6 +169,20 @@ Item {
   readonly property string voxtypeStateDir: root.runtimeDir + "/voxtype"
   readonly property string voxtypeStateFile: root.voxtypeStateDir + "/state"
 
+  // v1.25.1: terminal-emulator window classes (Hyprland `activewindow`
+  // class, compared case-insensitively) — 清空 must send Ctrl+A + Ctrl+K
+  // there, not the GUI Ctrl+A + BackSpace. Anchored on purpose: a substring
+  // test would let `st` catch `systemsettings`.
+  readonly property var terminalClasses: [
+    "foot", "alacritty", "kitty", "ghostty", "com.mitchellh.ghostty",
+    "wezterm", "org.wezfurlong.wezterm", "konsole", "gnome-terminal",
+    "gnome-terminal-server", "kgx", "org.gnome.console", "ptyxis",
+    "xterm", "urxvt", "rxvt", "termite", "tilix", "xfce4-terminal",
+    "mate-terminal", "lxterminal", "qterminal", "sakura", "st",
+    "st-256color", "warp-terminal", "dev.warp.warp", "tabby", "hyper",
+    "contour", "rio", "blackbox", "com.raggesilver.blackbox"
+  ]
+
   // Logical heights of the edge strip. Big when the bar is hidden (easy
   // reveal target), tiny when it is visible (so bar buttons stay reachable).
   readonly property real stripHiddenHeight: 16
@@ -541,12 +555,21 @@ Item {
     delCmd.running = true
   }
 
-  // v1.10: 清空 — clear the whole input field (select-all then delete), to
-  // wipe a bad dictation and start over. Works in standard text fields
-  // (chat / search); in a terminal it clears the current line.
+  function isTerminalClass(cls) {
+    return root.terminalClasses.indexOf(String(cls || "").toLowerCase()) !== -1
+  }
+
+  // v1.10: 清空 — clear the whole input, to wipe a bad dictation and start
+  // over. v1.25.1: the old recipe was GUI-only — a terminal emulator hands
+  // Ctrl+A to the shell as readline beginning-of-line, so the trailing
+  // BackSpace deleted nothing and the dictated line stayed put (also over
+  // SSH / in a TUI). Ask Hyprland which window owns the keyboard
+  // (clearWinProbe) and send the sequence that really clears it: a terminal
+  // gets Ctrl+A + Ctrl+K (kill-line), anything else Ctrl+A + BackSpace
+  // (select-all + delete).
   function clearInput() {
-    clrCmd.command = ["bash", "-c", "wtype -M ctrl -k a && wtype -k BackSpace"]
-    clrCmd.running = true
+    if (clearWinProbe.running) return
+    clearWinProbe.running = true
   }
 
   // v1.11: cursor arrows for the left-side direction pad — move the caret
@@ -674,6 +697,26 @@ Item {
   BoundedProcess { id: arrowCmd }
   BoundedProcess { id: vkCmd }
   BoundedProcess { id: inkCmd }
+
+  // v1.25.1: who owns the keyboard decides how 清空 must clear. One extra
+  // hyprctl round trip (~10 ms) is invisible next to the tap; on any probe
+  // failure the GUI sequence is the safe default — the terminal-only keys
+  // are also browser shortcuts (Ctrl+K = search bar, Ctrl+U = view-source)
+  // and must never be sent to a non-terminal by accident.
+  BoundedProcess {
+    id: clearWinProbe
+    command: ["hyprctl", "activewindow", "-j"]
+    onStreamFinished: {
+      var cls = ""
+      try { cls = String((JSON.parse(output || "{}") || {}).class || "") } catch (e) {}
+      clrCmd.command = root.isTerminalClass(cls)
+        // Ctrl+A = beginning-of-line, Ctrl+K = kill-line: empties the
+        // readline / zsh ZLE / fish edit line wherever the caret sits.
+        ? ["wtype", "-M", "ctrl", "-k", "a", "-k", "k", "-m", "ctrl"]
+        : ["wtype", "-M", "ctrl", "-k", "a", "-m", "ctrl", "-k", "BackSpace"]
+      clrCmd.running = true
+    }
+  }
 
   BoundedProcess {
     id: vkProbe
