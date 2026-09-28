@@ -65,11 +65,20 @@ import qs.Commons
 Item {
   id: root
 
-  // (no version in the log line: it went stale at v1.20 and misled during a
-  // hot-reload check — "LOADED" is what matters, the version is the manifest)
-  Component.onCompleted: console.log("tablet-experience Service LOADED")
+  // v1.26.1: the log line carries the plugin's build stamp again (it was a
+  // hardcoded "v1.20" that went stale and misled a reload check).
+  // `install.sh --verify` cross-checks this stamp against manifest.json and
+  // against the RUNNING shell (getState) — the only reliable way to notice
+  // that omarchy served a cached plugin: its `Local plugin changed,
+  // reloading` log does NOT re-read Service.qml from disk (DEVELOPMENT.md,
+  // v1.26.0 reload caveat).
+  Component.onCompleted: console.log("tablet-experience Service LOADED v" + root.pluginVersion)
 
   property var shell: null
+
+  // v1.26.1: the plugin's own build stamp. Kept here because QML cannot read
+  // manifest.json cheaply; bump it together with the manifest version.
+  readonly property string pluginVersion: "1.26.1"
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
 
   readonly property string mode: persisted.mode
@@ -747,11 +756,16 @@ Item {
     onStreamFinished: {
       var cls = ""
       try { cls = String((JSON.parse(output || "{}") || {}).class || "") } catch (e) {}
-      clrCmd.command = root.isTerminalClass(cls)
+      var cmd = root.isTerminalClass(cls)
         // Ctrl+A = beginning-of-line, Ctrl+K = kill-line: empties the
         // readline / zsh ZLE / fish edit line wherever the caret sits.
         ? ["wtype", "-M", "ctrl", "-k", "a", "-k", "k", "-m", "ctrl"]
         : ["wtype", "-M", "ctrl", "-k", "a", "-m", "ctrl", "-k", "BackSpace"]
+      clrCmd.command = cmd
+      // v1.26.1: one journal line per Clear, so a future "Clear does
+      // nothing" report can be traced to the window class seen at tap time.
+      console.log("clear: focused class=[" + cls + "] terminal=" + root.isTerminalClass(cls)
+        + " -> " + cmd.join(" "))
       clrCmd.running = true
     }
   }
@@ -1665,6 +1679,14 @@ Item {
   IpcHandler {
     target: "maxt.tablet-experience"
 
+    // v1.26.1: the Clear path without a tap — exactly what the button runs
+    // (probe the focused window -> pick the sequence -> wtype), for scripting
+    // and for reproducing a "Clear does nothing" report.
+    function clearNow(): string {
+      root.clearInput()
+      return "ok"
+    }
+
     function getState(): string {
       return JSON.stringify({
         mode: root.mode,
@@ -1677,6 +1699,7 @@ Item {
         barHidden: root.barHidden,
         voiceInputOpen: root.voiceInputOpen,
         cliKeysOpen: root.cliKeysOpen,
+        version: root.pluginVersion,
         inkVisible: root.inkVisible,
         voiceRecording: root.recording,
         voxtypeUp: root.voxtypeUp,

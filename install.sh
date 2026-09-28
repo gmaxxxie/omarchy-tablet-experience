@@ -196,6 +196,32 @@ if [ "$VERIFY" -eq 1 ]; then
     else
       bad "plugin QML BoundedProcess.qml missing/different — copy it from the repo"
     fi
+    # v1.26.1: the plugin stamps its own version (Service.qml `pluginVersion`
+    # → journal + getState). Two drifts matter: the source stamp vs the
+    # manifest, and — the trap that made a fixed "Clear" look broken — the
+    # RUNNING shell vs the installed manifest. omarchy's "Local plugin
+    # changed, reloading" does NOT re-read Service.qml, so the shell keeps
+    # serving the QML it cached at startup.
+    MANIFEST_VER="$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' \
+                    "$PLUGIN_DIR/manifest.json" 2>/dev/null | head -1)"
+    QML_VER="$(sed -n 's/.*readonly property string pluginVersion: "\([^"]*\)".*/\1/p' \
+               "$PLUGIN_DIR/Service.qml" 2>/dev/null | head -1)"
+    if [ -n "$MANIFEST_VER" ] && [ "$MANIFEST_VER" = "$QML_VER" ]; then
+      ok "plugin version in sync (manifest.json == Service.qml: v$MANIFEST_VER)"
+    else
+      bad "plugin version drift — manifest.json=v${MANIFEST_VER:-?} Service.qml=v${QML_VER:-?} (bump both)"
+    fi
+    if command -v omarchy-shell >/dev/null 2>&1 && [ -n "$MANIFEST_VER" ]; then
+      LIVE_VER="$(omarchy-shell maxt.tablet-experience getState 2>/dev/null \
+                  | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
+      if [ -z "$LIVE_VER" ]; then
+        warn "running shell reports no plugin version (older cached build) — omarchy restart shell"
+      elif [ "$LIVE_VER" = "$MANIFEST_VER" ]; then
+        ok "running shell serves plugin v$LIVE_VER (matches the installed plugin)"
+      else
+        bad "running shell serves cached v$LIVE_VER but the installed plugin is v$MANIFEST_VER — omarchy restart shell"
+      fi
+    fi
     DUPS="$(grep -rl 'maxt.tablet-experience' "$PLUGINS_DIR"/*/manifest.json 2>/dev/null \
             | grep -v "^$PLUGIN_DIR/manifest.json$" || true)"
     if [ -n "$DUPS" ]; then
