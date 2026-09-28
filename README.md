@@ -37,7 +37,10 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   with the keyboard** — the same 4×2 agent-key grid + caret arrows park
   12 px above the real wvkbd surface (its height is probed, so a themed or
   resized keyboard still fits) and follow it to whichever output it is on,
-  so `esc` / `/` / `⌃C` / `⌃D` … stay reachable while typing by hand. The bottom-edge up-swipe gesture
+  so `esc` / `/` / `⌃C` / `⌃D` … stay reachable while typing by hand.
+  **v1.28: the same bar carries a ✍ switch** — one tap parks the handwriting
+  panel (`texp-ink`) in the keyboard's place, and the panel's new **⌨** button
+  brings the keyboard back. The bottom-edge up-swipe gesture
   (texp-vk daemon) is **disabled by default since v1.2.1**; re-enable by
   adding `o.launch_on_start("texp-vk daemon")` to
   `~/.config/hypr/autostart.lua`. `install.sh` grants the desktop user evdev
@@ -64,7 +67,9 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   Latin/digits; ~21 MB model, no network at recognition time — the ink never
   leaves the machine) and the result is typed at the cursor with `wtype`, the
   same delivery path as voice input, so CJK works in terminals and every
-  toolkit. The panel is a **layer-shell overlay with `keyboard_mode=none`**,
+  toolkit. **v1.28: its ⌨ button hands the bottom strip back to the on-screen
+  keyboard** — handwriting ⇄ typing is one tap each way (the bar's ✍ on the
+  keyboard pad, or the pen icon / `SUPER+I`). The panel is a **layer-shell overlay with `keyboard_mode=none`**,
   so it never steals focus from the app you are writing into. Write one
   character and pause: candidates appear and the top one is committed
   automatically (toggle **自动上屏** off for tap-to-pick), or tap any candidate
@@ -195,7 +200,7 @@ verify with `install.sh --verify`.
 | Switch input method (EN ⇄ 中) | **bar button, tablet mode** (shows current IM) |
 | Voice input (hold to talk) | **mic bar button (tablet)** → bottom button: press & hold to record, release to transcribe; **Delete / Clear / Enter** to fix or submit; **left-side ↑↓←→ pad** to move the caret; **“CLI keys” pad** (v1.26: esc / / / tab / ⇧tab / ⌃C / ⌃D / ⌃J / ⌃T) for pi & codex CLI; mic icon again to close |
 | Window manage (close / move) | **window bar button (tablet)** → Close ✕ / Move to Workspace 1–10 |
-| Virtual keyboard | `SUPER+U` · bottom-edge up-swipe · **tablet bar button** · **“CLI keys” pad above it** (v1.27: esc / / / tab / ⇧tab / ⌃C / ⌃D / ⌃J / ⌃T + caret arrows) |
+| Virtual keyboard | `SUPER+U` · bottom-edge up-swipe · **tablet bar button** · **“CLI keys” pad above it** (v1.27: esc / / / tab / ⇧tab / ⌃C / ⌃D / ⌃J / ⌃T + caret arrows) · **✍ on that pad → handwriting**, panel's ⌨ → back |
 | Hidden bar icons (tablet) | **⋮ button** → per-icon on/off toggles + Hide all / Show all |
 | Virtual keyboard | `SUPER+U` · **bar button (tablet)** · 3-finger tap (bottom-edge up-swipe gesture disabled by default since v1.2.1) |
 | Show/hide top bar (tablet mode) | tap the top edge / bar blank area (16 px strip when hidden, 5 px when shown) |

@@ -699,6 +699,13 @@ class InkPanel:
         self.btn_mode.add_css_class("mini")
         self.btn_mode.connect("clicked", self._toggle_mode)
         head.append(self.btn_mode)
+        # v1.28: 切回虚拟键盘 —— 手写面板与屏幕键盘是互斥的两层，这里收起面板
+        # 并叫起 wvkbd（texp-vk show 就是插件/顶栏键盘图标用的那个 helper）。
+        btn_kbd = Gtk.Button(label="\u2328")      # ⌨
+        btn_kbd.add_css_class("mini")
+        btn_kbd.set_tooltip_text("切回虚拟键盘（手写 ⇄ 键盘）")
+        btn_kbd.connect("clicked", self._to_keyboard)
+        head.append(btn_kbd)
         btn_close = Gtk.Button(label="✕")
         btn_close.add_css_class("mini")
         btn_close.connect("clicked", lambda *_: self.hide())
@@ -940,6 +947,20 @@ class InkPanel:
             return
         self.last_commit = text
         self._say(f"已输入：{text}")
+
+    def _to_keyboard(self, *_):
+        """v1.28: 手写 ⇄ 虚拟键盘：收起面板并叫起屏幕键盘。
+
+        键盘侧往上抛的是“✍ / CLI keys 板的✍ / 顶栏铅笔”，本按钮是回来那一半；
+        texp-vk show 与插件 showVk() 走同一条路（幂等），两边都靠 hyprctl layers
+        轮询把状态对齐。
+        """
+        self.hide()
+        try:
+            subprocess.Popen(["texp-vk", "show"], stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+        except OSError:
+            self._say("未找到 texp-vk")
 
     def _key(self, key: str, repeat: int = 1):
         if repeat <= 0:

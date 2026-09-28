@@ -78,7 +78,7 @@ Item {
 
   // v1.26.1: the plugin's own build stamp. Kept here because QML cannot read
   // manifest.json cheaply; bump it together with the manifest version.
-  readonly property string pluginVersion: "1.27.0"
+  readonly property string pluginVersion: "1.28.0"
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
 
   readonly property string mode: persisted.mode
@@ -653,9 +653,13 @@ Item {
   // typed at the cursor with wtype — the same delivery path as voice input,
   // so CJK works in terminals and all toolkits. The panel is keyboard-inert
   // (layer-shell keyboard_mode=none), so it never steals focus from the app.
+  // v1.28: the toggle routes through show/hide so it obeys the mutual
+  // exclusion. It used to flip the panel directly, which left the voice
+  // overlay (or the keyboard) on screen underneath — the pad's ✍ switch and
+  // the bar's pen icon both go through here.
   function toggleInkInput() {
-    inkCmd.command = ["texp-ink", root.inkVisible ? "hide" : "show"]
-    inkCmd.running = true
+    if (root.inkVisible) root.hideInkInput()
+    else root.showInkInput()
   }
 
   function showInkInput() {
@@ -1201,21 +1205,47 @@ Item {
 
           // Toggle bar. The chevron points the way the grid appears (up),
           // so it reads as "open more keys above me".
-          Rectangle {
-            width: 232
-            height: 32
-            radius: 12
-            color: Util.alpha(Color.accent, 0.08)
-            border.width: 1
-            border.color: Util.alpha(Color.foreground, 0.22)
-            Text {
-              anchors.centerIn: parent
-              text: root.cliKeysOpen ? "CLI keys  \u25BC" : "CLI keys  \u25B2"
-              color: Util.alpha(Color.foreground, 0.85)
-              font.family: Style.font.family
-              font.pixelSize: Style.font.bodySmall
+          // v1.28: the bar now carries a ✍ switch too — one tap swaps the
+          // whole bottom strip to the texp-ink handwriting panel (the pad
+          // rides with either the voice overlay or the keyboard, and ink is
+          // mutually exclusive with both, so this is "keyboard → handwriting";
+          // the panel's own ⌨ button brings the keyboard back).
+          Row {
+            spacing: 8
+
+            Rectangle {
+              width: 232 - 8 - 40
+              height: 32
+              radius: 12
+              color: Util.alpha(Color.accent, 0.08)
+              border.width: 1
+              border.color: Util.alpha(Color.foreground, 0.22)
+              Text {
+                anchors.centerIn: parent
+                text: root.cliKeysOpen ? "CLI keys  \u25BC" : "CLI keys  \u25B2"
+                color: Util.alpha(Color.foreground, 0.85)
+                font.family: Style.font.family
+                font.pixelSize: Style.font.bodySmall
+              }
+              TapHandler { onTapped: root.cliKeysOpen = !root.cliKeysOpen }
             }
-            TapHandler { onTapped: root.cliKeysOpen = !root.cliKeysOpen }
+
+            Rectangle {
+              width: 40
+              height: 32
+              radius: 12
+              color: Util.alpha(Color.accent, 0.12)
+              border.width: 1
+              border.color: Util.alpha(Color.foreground, 0.3)
+              Text {
+                anchors.centerIn: parent
+                text: "\uF040"    // fa-pencil, same glyph as the bar icon
+                color: root.inkVisible ? Color.accent : Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.iconLarge
+              }
+              TapHandler { onTapped: root.toggleInkInput() }
+            }
           }
 
           Row {
