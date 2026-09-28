@@ -33,7 +33,11 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   **F1-F12**, a **number row** (Chinese candidate selection) and **arrows**,
   sized for the tablet (squeekboard with its number row stays as the
   fallback). So the keyboard-command shortcuts Omarchy / AI terminals expect
-  are available on the touchscreen too. The bottom-edge up-swipe gesture
+  are available on the touchscreen too. **v1.27: the “CLI keys” pad rides
+  with the keyboard** — the same 4×2 agent-key grid + caret arrows park
+  12 px above the real wvkbd surface (its height is probed, so a themed or
+  resized keyboard still fits) and follow it to whichever output it is on,
+  so `esc` / `/` / `⌃C` / `⌃D` … stay reachable while typing by hand. The bottom-edge up-swipe gesture
   (texp-vk daemon) is **disabled by default since v1.2.1**; re-enable by
   adding `o.launch_on_start("texp-vk daemon")` to
   `~/.config/hypr/autostart.lua`. `install.sh` grants the desktop user evdev
@@ -110,7 +114,8 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   keys — `esc`, `/`, `tab`, `⇧tab`, `⌃C`, `⌃D`, `⌃J` (newline, does not
   submit) and `⌃T` — so a touch-only tablet can drive **pi** / **codex CLI**
   the way the physical keyboard would (the set is data-driven and easy to
-  edit). Voice input
+  edit) — **v1.27 extends the same pad to the on-screen keyboard** (see
+  below), so it is not limited to voice mode. Voice input
   and the virtual keyboard are **mutually exclusive** (v1.11): opening one
   closes the other. Live recording / transcribing state is shown on the
   button and reflects the F9 / SUPER+CTRL+X hotkeys too.
@@ -190,7 +195,7 @@ verify with `install.sh --verify`.
 | Switch input method (EN ⇄ 中) | **bar button, tablet mode** (shows current IM) |
 | Voice input (hold to talk) | **mic bar button (tablet)** → bottom button: press & hold to record, release to transcribe; **Delete / Clear / Enter** to fix or submit; **left-side ↑↓←→ pad** to move the caret; **“CLI keys” pad** (v1.26: esc / / / tab / ⇧tab / ⌃C / ⌃D / ⌃J / ⌃T) for pi & codex CLI; mic icon again to close |
 | Window manage (close / move) | **window bar button (tablet)** → Close ✕ / Move to Workspace 1–10 |
-| Virtual keyboard | `SUPER+U` · bottom-edge up-swipe · **tablet bar button** |
+| Virtual keyboard | `SUPER+U` · bottom-edge up-swipe · **tablet bar button** · **“CLI keys” pad above it** (v1.27: esc / / / tab / ⇧tab / ⌃C / ⌃D / ⌃J / ⌃T + caret arrows) |
 | Hidden bar icons (tablet) | **⋮ button** → per-icon on/off toggles + Hide all / Show all |
 | Virtual keyboard | `SUPER+U` · **bar button (tablet)** · 3-finger tap (bottom-edge up-swipe gesture disabled by default since v1.2.1) |
 | Show/hide top bar (tablet mode) | tap the top edge / bar blank area (16 px strip when hidden, 5 px when shown) |

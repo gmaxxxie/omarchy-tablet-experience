@@ -78,7 +78,7 @@ Item {
 
   // v1.26.1: the plugin's own build stamp. Kept here because QML cannot read
   // manifest.json cheaply; bump it together with the manifest version.
-  readonly property string pluginVersion: "1.26.1"
+  readonly property string pluginVersion: "1.27.0"
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
 
   readonly property string mode: persisted.mode
@@ -167,6 +167,12 @@ Item {
   property bool voxtypeUp: false
   // v1.11: on-screen keyboard visibility (voice input <-> VK are exclusive).
   property bool vkVisible: false
+  // v1.27: the real wvkbd surface geometry (output name + logical height),
+  // read from the same `hyprctl layers` probe. The CLI/caret pad parks just
+  // ABOVE the keyboard — whose height varies with theme/env (-L 350 default)
+  // — and only on the output that actually hosts it.
+  property string vkOutput: ""
+  property real vkHeight: 0
   // v1.21: handwriting input (texp-ink) panel visibility. Read back from
   // `hyprctl layers` (namespace texp-ink) so a panel closed on its own (✕)
   // is reflected immediately.
@@ -717,6 +723,9 @@ Item {
     var changed = vis !== root.vkVisible
     root.vkVisible = vis
     if (changed && vis && root.voiceInputOpen) root.hideVoiceInput()
+    // v1.27: leaving keyboard mode reopens the pad collapsed, same rule as
+    // leaving voice mode (hideVoiceInput does it there).
+    if (changed && !vis) root.cliKeysOpen = false
   }
 
   function pollVk() {
@@ -782,6 +791,8 @@ Item {
     onStreamFinished: {
       var vis = false
       var ink = false
+      var vkOut = ""
+      var vkH = 0
       try {
         var d = JSON.parse(output || "{}")
         for (var out in d) {
@@ -790,12 +801,20 @@ Item {
             var arr = levels[lvl] || []
             for (var i = 0; i < arr.length; i++) {
               var ns = String(arr[i].namespace || "")
-              if (ns.indexOf("wvkbd") !== -1) vis = true
+              if (ns.indexOf("wvkbd") !== -1) {
+                vis = true
+                // v1.27: the pad is parked above the keyboard, so remember
+                // which output it is on and how tall it came up.
+                vkOut = String(out)
+                vkH = Math.max(vkH, Number(arr[i].h) || 0)
+              }
               if (ns.indexOf("texp-ink") !== -1) ink = true
             }
           }
         }
       } catch (e) {}
+      root.vkOutput = vis ? vkOut : ""
+      root.vkHeight = vis ? vkH : 0
       root.inkVisible = ink
       root.onVkState(vis ? "visible" : "hidden")
     }
@@ -1114,17 +1133,30 @@ Item {
         id: dirPad
         required property var modelData
         screen: modelData
-        visible: root.isTabletMode && root.voiceInputOpen
+        // v1.27: shown in voice mode AND with the on-screen keyboard, so the
+        // CLI keys (esc / / / ⌃C / ⌃D …) and caret arrows stay reachable
+        // while typing by hand. The keyboard may live on another output —
+        // only that output's pad follows it (v1.27). Hidden while locked:
+        // there the keyboard is only for the password field.
+        readonly property bool vkHere: root.vkVisible
+          && String(root.vkOutput) === String(modelData.name || "")
+        visible: root.isTabletMode && !root.locked
+          && (root.voiceInputOpen || vkHere)
         color: "transparent"
         WlrLayershell.namespace: "maxt-tablet-dirpad"
         WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
         exclusionMode: ExclusionMode.Ignore
 
-        // bottom margin 40 == voice bar (28 margin + 12 internal padding)
-        // so the arrow row sits on the same baseline as the action buttons.
+        // v1.12.1 voice mode: bottom margin 40 == voice bar (28 margin + 12
+        // internal padding), so the arrow row sits on the same baseline as
+        // the action buttons. v1.27 keyboard mode: park 12px above the real
+        // wvkbd surface (its height is probed, not hardcoded).
         anchors { bottom: true; left: true }
-        margins { bottom: 40; left: 28 }
+        margins {
+          bottom: root.voiceInputOpen ? 40 : Math.max(root.vkHeight + 12, 40)
+          left: 28
+        }
         implicitWidth: 232
         // v1.26: the pad grows UPWARD (it is anchored to the bottom).
         // Collapsed = toggle bar + caret arrows (32 + 8 + 44 = 84), the line
@@ -1699,6 +1731,9 @@ Item {
         barHidden: root.barHidden,
         voiceInputOpen: root.voiceInputOpen,
         cliKeysOpen: root.cliKeysOpen,
+        vkVisible: root.vkVisible,
+        vkOutput: root.vkOutput,
+        vkHeight: root.vkHeight,
         version: root.pluginVersion,
         inkVisible: root.inkVisible,
         voiceRecording: root.recording,
@@ -1799,6 +1834,13 @@ Item {
     }
 
     // ---- voice input (v1.5): open/close the bottom hold-to-talk button.
+    // v1.27: open/close the CLI-key grid half of the pad (the toggle bar's
+    // IPC twin) — handy for scripting and for verifying the pad's layout.
+    function cliKeysToggle(): string {
+      root.cliKeysOpen = !root.cliKeysOpen
+      return root.cliKeysOpen ? "open" : "closed"
+    }
+
     function voiceInputToggle(): string {
       root.toggleVoiceInput()
       return root.voiceInputOpen ? "open" : "closed"
