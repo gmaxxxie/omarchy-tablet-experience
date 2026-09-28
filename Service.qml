@@ -65,7 +65,9 @@ import qs.Commons
 Item {
   id: root
 
-  Component.onCompleted: console.log("tablet-experience Service LOADED v1.20")
+  // (no version in the log line: it went stale at v1.20 and misled during a
+  // hot-reload check — "LOADED" is what matters, the version is the manifest)
+  Component.onCompleted: console.log("tablet-experience Service LOADED")
 
   property var shell: null
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
@@ -147,6 +149,9 @@ Item {
   //   transcribing    voxtype state file says transcribing/outputting
   //   voxtypeUp       voxtype state file readable => daemon running
   property bool voiceInputOpen: false
+  // v1.26: the expandable CLI-key pad (esc / slash / ctrl-d …) above the
+  // caret arrows — for driving a TUI agent (pi / codex) from touch.
+  property bool cliKeysOpen: false
   property bool holding: false
   property bool recording: false
   property bool transcribing: false
@@ -181,6 +186,25 @@ Item {
     "mate-terminal", "lxterminal", "qterminal", "sakura", "st",
     "st-256color", "warp-terminal", "dev.warp.warp", "tabby", "hyper",
     "contour", "rio", "blackbox", "com.raggesilver.blackbox"
+  ]
+
+  // v1.26: extra control keys for the voice-mode pad — the keys a TUI agent
+  // (pi / codex CLI) or a shell prompt actually needs from touch, which the
+  // 4 caret arrows cannot provide. `label` is the literal key sent; `argv`
+  // is appended to `wtype`. Chosen for what BOTH agents share: esc
+  // (interrupt), / (slash commands), tab / shift+tab (complete / cycle mode),
+  // ctrl+c (cancel), ctrl+d (exit), ctrl+j (newline instead of submit),
+  // ctrl+t (show/hide detail — pi: thinking, codex: transcript). The grid
+  // reflows, so adding/removing entries is enough (4 columns of 52px).
+  readonly property var cliKeys: [
+    { label: "esc",  argv: ["-k", "Escape"] },
+    { label: "/",    argv: ["-k", "slash"] },
+    { label: "tab",  argv: ["-k", "Tab"] },
+    { label: "\u21E7tab", argv: ["-M", "shift", "-k", "Tab", "-m", "shift"] },
+    { label: "\u2303C",  argv: ["-M", "ctrl", "-k", "c", "-m", "ctrl"] },
+    { label: "\u2303D",  argv: ["-M", "ctrl", "-k", "d", "-m", "ctrl"] },
+    { label: "\u2303J",  argv: ["-M", "ctrl", "-k", "j", "-m", "ctrl"] },
+    { label: "\u2303T",  argv: ["-M", "ctrl", "-k", "t", "-m", "ctrl"] }
   ]
 
   // Logical heights of the edge strip. Big when the bar is hidden (easy
@@ -521,6 +545,9 @@ Item {
     // icon, or a mode switch) — a lift-off event can get lost with it.
     if (root.holding || root.recording) root.stopRecording()
     root.voiceInputOpen = false
+    // v1.26: always reopen the pad collapsed (predictable, and the expanded
+    // grid would otherwise float over the new mode's UI).
+    root.cliKeysOpen = false
   }
 
   // Press = `voxtype record start` (SIGUSR1); gated locally so a repeated
@@ -577,6 +604,16 @@ Item {
   function sendArrow(dir) {
     arrowCmd.command = ["wtype", "-k", dir]
     arrowCmd.running = true
+  }
+
+  // v1.26: one control key from the expandable CLI pad. Copy argv element by
+  // element (QML may hand a model's nested array back as a QVariantList,
+  // which Array.concat would splice in as one element).
+  function sendCliKey(argv) {
+    var cmd = ["wtype"]
+    for (var i = 0; i < argv.length; i++) cmd.push(String(argv[i]))
+    cliCmd.command = cmd
+    cliCmd.running = true
   }
 
   // v1.11: hide the on-screen keyboard (texp-vk controls whichever backend
@@ -695,6 +732,7 @@ Item {
   BoundedProcess { id: delCmd }
   BoundedProcess { id: clrCmd }
   BoundedProcess { id: arrowCmd }
+  BoundedProcess { id: cliCmd }
   BoundedProcess { id: vkCmd }
   BoundedProcess { id: inkCmd }
 
@@ -1047,11 +1085,14 @@ Item {
     }
   }
 
-  // Direction pad (v1.11, bottom-left v1.12.1): a cursor-key row shown with
-  // voice input — move the caret to fix the dictated text (wtype -k
-  // Left/Right/Up/Down). Anchored bottom-left, on the SAME horizontal line as
-  // the voice bar's Delete/Clear/Enter row (same 44px height / 232px width /
-  // bottom edge), so one hand can reach both dictation and caret keys.
+  // Direction pad (v1.11, bottom-left v1.12.1, expandable CLI keys v1.26): a
+  // caret-key row shown with voice input — move the caret to fix the dictated
+  // text (wtype -k Left/Right/Up/Down). v1.26 adds a "CLI keys" toggle bar
+  // above it that expands a 4x2 grid of agent control keys (esc / / / tab /
+  // ctrl-c / ctrl-d / ctrl-j / ctrl-t) for pi / codex CLI. Anchored
+  // bottom-left, on the SAME horizontal line as the voice bar's
+  // Delete/Clear/Enter row (same 44px height / 232px width / bottom edge), so
+  // one hand can reach both dictation and caret/agent keys.
   Variants {
     model: Quickshell.screens
     delegate: Component {
@@ -1071,75 +1112,133 @@ Item {
         anchors { bottom: true; left: true }
         margins { bottom: 40; left: 28 }
         implicitWidth: 232
-        implicitHeight: 44
+        // v1.26: the pad grows UPWARD (it is anchored to the bottom).
+        // Collapsed = toggle bar + caret arrows (32 + 8 + 44 = 84), the line
+        // v1.12.1 verified; expanded adds the 4x2 CLI grid above the bar
+        // (96 + 8 + 32 + 8 + 44 = 188).
+        implicitHeight: root.cliKeysOpen ? 188 : 84
 
-        Row {
+        Column {
           anchors.centerIn: parent
           spacing: 8
 
-          Rectangle {
-            width: 52
-            height: 44
-            radius: 12
-            color: Util.alpha(Color.accent, 0.12)
-            border.width: 1
-            border.color: Util.alpha(Color.foreground, 0.3)
-            Text {
-              anchors.centerIn: parent
-              text: "\u2190"        // ←
-              color: Color.foreground
-              font.family: Style.font.family
-              font.pixelSize: 22
+          // v1.26: agent control keys (pi / codex CLI) — only while the pad
+          // is expanded. Column skips hidden items, so collapsed stays 84.
+          Grid {
+            visible: root.cliKeysOpen
+            columns: 4
+            spacing: 8
+            width: 232
+
+            Repeater {
+              model: root.cliKeys
+              delegate: Rectangle {
+                id: cliKey
+                required property var modelData
+                width: 52
+                height: 44
+                radius: 12
+                color: Util.alpha(Color.accent, 0.12)
+                border.width: 1
+                border.color: Util.alpha(Color.foreground, 0.3)
+                Text {
+                  anchors.centerIn: parent
+                  text: cliKey.modelData.label
+                  color: Color.foreground
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.body
+                }
+                TapHandler { onTapped: root.sendCliKey(cliKey.modelData.argv) }
+              }
             }
-            TapHandler { onTapped: root.sendArrow("Left") }
           }
+
+          // Toggle bar. The chevron points the way the grid appears (up),
+          // so it reads as "open more keys above me".
           Rectangle {
-            width: 52
-            height: 44
+            width: 232
+            height: 32
             radius: 12
-            color: Util.alpha(Color.accent, 0.12)
+            color: Util.alpha(Color.accent, 0.08)
             border.width: 1
-            border.color: Util.alpha(Color.foreground, 0.3)
+            border.color: Util.alpha(Color.foreground, 0.22)
             Text {
               anchors.centerIn: parent
-              text: "\u2192"        // →
-              color: Color.foreground
+              text: root.cliKeysOpen ? "CLI keys  \u25BC" : "CLI keys  \u25B2"
+              color: Util.alpha(Color.foreground, 0.85)
               font.family: Style.font.family
-              font.pixelSize: 22
+              font.pixelSize: Style.font.bodySmall
             }
-            TapHandler { onTapped: root.sendArrow("Right") }
+            TapHandler { onTapped: root.cliKeysOpen = !root.cliKeysOpen }
           }
-          Rectangle {
-            width: 52
-            height: 44
-            radius: 12
-            color: Util.alpha(Color.accent, 0.12)
-            border.width: 1
-            border.color: Util.alpha(Color.foreground, 0.3)
-            Text {
-              anchors.centerIn: parent
-              text: "\u2191"        // ↑
-              color: Color.foreground
-              font.family: Style.font.family
-              font.pixelSize: 22
+
+          Row {
+            spacing: 8
+
+            Rectangle {
+              width: 52
+              height: 44
+              radius: 12
+              color: Util.alpha(Color.accent, 0.12)
+              border.width: 1
+              border.color: Util.alpha(Color.foreground, 0.3)
+              Text {
+                anchors.centerIn: parent
+                text: "\u2190"        // ←
+                color: Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: 22
+              }
+              TapHandler { onTapped: root.sendArrow("Left") }
             }
-            TapHandler { onTapped: root.sendArrow("Up") }
-          }
-          Rectangle {
-            width: 52
-            height: 44
-            radius: 12
-            color: Util.alpha(Color.accent, 0.12)
-            border.width: 1
-            border.color: Util.alpha(Color.foreground, 0.3)
-            Text {
-              anchors.centerIn: parent
-              text: "\u2193"        // ↓
-              color: Color.foreground
-              font.family: Style.font.family
-              font.pixelSize: 22
+            Rectangle {
+              width: 52
+              height: 44
+              radius: 12
+              color: Util.alpha(Color.accent, 0.12)
+              border.width: 1
+              border.color: Util.alpha(Color.foreground, 0.3)
+              Text {
+                anchors.centerIn: parent
+                text: "\u2192"        // →
+                color: Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: 22
+              }
+              TapHandler { onTapped: root.sendArrow("Right") }
             }
-            TapHandler { onTapped: root.sendArrow("Down") }
+            Rectangle {
+              width: 52
+              height: 44
+              radius: 12
+              color: Util.alpha(Color.accent, 0.12)
+              border.width: 1
+              border.color: Util.alpha(Color.foreground, 0.3)
+              Text {
+                anchors.centerIn: parent
+                text: "\u2191"        // ↑
+                color: Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: 22
+              }
+              TapHandler { onTapped: root.sendArrow("Up") }
+            }
+            Rectangle {
+              width: 52
+              height: 44
+              radius: 12
+              color: Util.alpha(Color.accent, 0.12)
+              border.width: 1
+              border.color: Util.alpha(Color.foreground, 0.3)
+              Text {
+                anchors.centerIn: parent
+                text: "\u2193"        // ↓
+                color: Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: 22
+              }
+              TapHandler { onTapped: root.sendArrow("Down") }
+            }
           }
         }
       }
@@ -1577,6 +1676,7 @@ Item {
         isTabletMode: root.isTabletMode,
         barHidden: root.barHidden,
         voiceInputOpen: root.voiceInputOpen,
+        cliKeysOpen: root.cliKeysOpen,
         inkVisible: root.inkVisible,
         voiceRecording: root.recording,
         voxtypeUp: root.voxtypeUp,
