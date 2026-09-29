@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""
+texp-mousehop — hand the pointer home from a mousehop peer before we type.
+
+The problem this solves: mousehop is a software KVM. While the pointer has
+crossed over to the peer machine (here: the Mac on the left edge) mousehop
+holds an InputCapture (EIS/libei) session, and Hyprland forwards EVERY key
+event to the peer and drops it locally — `CInputManager::onKeyboardKey()`
+only delivers the key when `!PROTO::inputCapture->isCaptured()`, and the same
+gate sits in front of every keybind. Voice input (voxtype -> wtype), the
+on-screen keyboard and handwriting all type through that path, so on the
+tablet they silently do nothing and the text shows up on the Mac instead.
+Touch still works (pointer/touch events are not captured), which is why the
+mic button lights up and only the dictation disappears.
+
+The fix: ask mousehop to release its capture first. `EnableCapture` is the
+same release path as the release-bind hotkey (Capture::reenable ->
+release_capture): key-ups for anything still held, a Leave event to the peer,
+the host cursor warped back inside the edge. The barrier session stays
+registered, so simply pushing the pointer back across the edge still works,
+and it is a harmless no-op when nothing is captured. Unlike `Activate`,
+`UpdatePosition` or `SaveConfiguration` it never calls save_config(), so
+~/.config/mousehop/config.toml keeps the user's comments.
+
+The release lands a moment later (mousehop -> libei -> portal -> Hyprland;
+measured 39-41 ms on this tablet), so we wait before returning: whatever types
+next must not win that race.
+
+Whoever calls this is in a hurry to type, so: silent exit 0 when there is no
+mousehop to talk to, short socket timeouts, and a socket path that survives a
+scrubbed environment (a voxtype pre_output_command is spawned by the daemon and
+need not inherit the session's exact XDG_RUNTIME_DIR).
+
+Usage:
+  texp-mousehop release        # default — safe before any injected text
+  texp-mousehop run -- CMD ... # release, then exec CMD (wtype goes second)
+  texp-mousehop probe          # is the daemon answering? (install --verify)
+  texp-mousehop release -v     # say what happened
+  TEXP_MOUSEHOP_SETTLE_MS=0 texp-mousehop release   # no settle wait (tests)
+
+`run` exists for callers that must not block: texp-ink (GTK) spawns
+`texp-mousehop run -- wtype ...` and forgets about it — the release happens in
+that child, the typing starts after it landed, and the panel never freezes on
+a synchronous release.
+
+Environment:
+  TEXP_MOUSEHOP_SOCKET     frontend socket path (default
+                           $XDG_RUNTIME_DIR/mousehop-socket.sock, or
+                           /run/user/<uid>/mousehop-socket.sock when that does
+                           not exist)
+  TEXP_MOUSEHOP_SETTLE_MS  ms to wait for the release to land (default 120)
+  TEXP_MOUSEHOP_DEBUG=1    verbose (same as -v)
+
+Exit status: `release` always exits 0 — it is called in front of typing, so it
+must never break the pipeline (voxtype would otherwise lose the transcript).
+`run` exec's CMD, so it reports CMD's own status (127 when CMD is missing).
+`probe` exits 1 when the daemon does not answer.
+"""
+import json
+import os
+import socket
+import sys
+import time
+
+# mousehop's frontend socket speaks newline-delimited JSON with externally
+# tagged serde enums: a unit variant is a bare JSON string.
+RELEASE_REQUEST = "EnableCapture"
+PROBE_REQUEST = {"Enumerate": []}
+TIMEOUT = 0.3      # connect/send/receive timeout, seconds
+SETTLE_MS = 120    # grace period for the release to reach Hyprland
+
+
+def log(msg, verbose):
+    if verbose:
+        sys.stderr.write("texp-mousehop: %s\n" % msg)
+
+
+def socket_path():
+    """The frontend socket that actually exists, with a /run/user fallback."""
+    override = os.environ.get("TEXP_MOUSEHOP_SOCKET")
+    if override:
+        return override
+    primary = os.path.join(
+        os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid(),
+        "mousehop-socket.sock")
+    fallback = "/run/user/%d/mousehop-socket.sock" % os.getuid()
+    if primary != fallback and not os.path.exists(primary) and os.path.exists(fallback):
+        return fallback
+    return primary
+
+
+def settle_ms():
+    raw = os.environ.get("TEXP_MOUSEHOP_SETTLE_MS")
+    if raw is None:
+        return SETTLE_MS
+    try:
+        return max(0, int(float(raw)))
+    except ValueError:
+        return SETTLE_MS
+
+
+def open_socket():
+    """Connect to the mousehop daemon; (socket, None) or (None, why)."""
+    path = socket_path()
+    if not os.path.exists(path):
+        return None, "no mousehop daemon (%s)" % path
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(TIMEOUT)
+    try:
+        sock.connect(path)
+    except OSError as exc:
+        sock.close()
+        return None, "cannot reach %s (%s)" % (path, exc.strerror)
+    return sock, None
+
+
+def release(verbose):
+    """Ask mousehop to release the active capture; never raise, never fail."""
+    sock, why = open_socket()
+    if sock is None:
+        log("%s — nothing to release" % why, verbose)
+        return 0
+    try:
+        sock.sendall((json.dumps(RELEASE_REQUEST) + "\n").encode())
+        log("sent %s" % RELEASE_REQUEST, verbose)
+        # Drain the connect-time state dump: it proves the request reached the
+        # daemon's event loop, and its absence is what a wedged socket looks
+        # like (bounded by TIMEOUT either way).
+        try:
+            sock.recv(65536)
+        except OSError:
+            pass
+    except OSError as exc:
+        log("send failed (%s)" % exc, verbose)
+    finally:
+        sock.close()
+    wait = settle_ms()
+    if wait:
+        # The release is asynchronous past this point (mousehop -> libei ->
+        # portal -> Hyprland): give it time to land before anyone types.
+        time.sleep(wait / 1000.0)
+    log("capture release requested (settled %d ms)" % wait, verbose)
+    return 0
+
+
+def run_command(argv, verbose):
+    """Release the capture, then become CMD (used by texp-ink)."""
+    if not argv:
+        sys.stderr.write("texp-mousehop: run needs a command\n")
+        return 2
+    release(verbose)
+    try:
+        os.execvp(argv[0], argv)
+    except OSError as exc:
+        sys.stderr.write("texp-mousehop: cannot run %s (%s)\n" % (argv[0], exc))
+        return 127
+    return 0                              # not reached
+
+
+def probe(verbose):
+    """Report whether the daemon answers frontend requests; 0 = yes."""
+    sock, why = open_socket()
+    if sock is None:
+        print("mousehop: %s" % why)
+        return 1
+    try:
+        sock.sendall((json.dumps(PROBE_REQUEST) + "\n").encode())
+        data = sock.recv(65536).decode("utf-8", "replace")
+    except OSError as exc:
+        print("mousehop: no answer (%s)" % exc)
+        return 1
+    finally:
+        sock.close()
+    clients = []
+    for line in data.splitlines():
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(msg, dict) or "Enumerate" not in msg:
+            continue
+        for row in msg["Enumerate"]:
+            try:
+                handle, config, state = row
+                host = config.get("hostname") or "?"
+                pos = config.get("pos") or config.get("position") or "?"
+                clients.append("%s %s (%s)%s" % (
+                    handle, host, pos, " active" if state.get("active") else ""))
+            except (TypeError, ValueError, AttributeError):
+                continue
+    log("raw reply: %s" % data.strip(), verbose)
+    print("mousehop: ok — %d client(s)%s" % (
+        len(clients), ": " + ", ".join(clients) if clients else ""))
+    return 0
+
+
+def main():
+    verbose = os.environ.get("TEXP_MOUSEHOP_DEBUG") == "1"
+    command = "release"
+    rest = []
+    arglist = sys.argv[1:]
+    while arglist:
+        arg = arglist.pop(0)
+        if arg in ("-h", "--help"):
+            print(__doc__.strip())
+            return 0
+        if arg in ("-v", "--verbose"):
+            verbose = True
+        elif arg == "run":
+            # everything after `run` is the command line (options first)
+            command = "run"
+            rest = arglist
+            arglist = []
+        elif arg in ("release", "probe"):
+            command = arg
+        else:
+            sys.stderr.write("texp-mousehop: unknown argument '%s'\n" % arg)
+            return 2
+    if rest[:1] == ["--"]:
+        rest = rest[1:]
+    try:
+        if command == "probe":
+            return probe(verbose)
+        if command == "run":
+            return run_command(rest, verbose)
+        return release(verbose)
+    except Exception as exc:               # never break the dictation pipeline
+        sys.stderr.write("texp-mousehop: %s\n" % exc)
+        return 0 if command == "release" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

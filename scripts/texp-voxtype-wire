@@ -1,0 +1,284 @@
+#!/usr/bin/env python3
+"""
+texp-voxtype-wire — point voxtype's output.pre_output_command at texp-mousehop.
+
+Voxtype types the transcript with wtype, and while mousehop holds an
+InputCapture session (pointer on the peer machine) Hyprland routes those keys
+to the peer — the dictation disappears onto the Mac. `pre_output_command` runs
+just before voxtype types, which is exactly where the capture has to be
+released (see scripts/texp-mousehop for the whole story).
+
+`voxtype config set` does not know this key (it is not in the CLI allowlist),
+so the line is written directly into ~/.config/voxtype/config.toml. That file
+is hand-written and comment-rich, so this is a line-based edit inside the
+[output] section plus an atomic rename — never a TOML round-trip. A value the
+user set themselves is left alone (exit 2) instead of being overwritten.
+
+Usage:
+  texp-voxtype-wire                 # insert or refresh the hook
+  texp-voxtype-wire --bin DIR       # use DIR/texp-mousehop (install.sh does this)
+  texp-voxtype-wire --check         # report only; 0 = wired, 1 = not wired
+  texp-voxtype-wire --uninstall     # drop the hook again (uninstall.sh)
+  texp-voxtype-wire --print         # print the command it would wire
+
+Environment:
+  TEXP_VOXTYPE_CONFIG   config to edit (default ~/.config/voxtype/config.toml)
+
+Exit status:
+  0 wired (or already wired)   1 not wired (--check / --uninstall, nothing to do)
+  2 a different pre_output_command is set — left untouched
+  3 voxtype config not found   4 no [output] section to write into
+  64 usage error
+"""
+import os
+import shutil
+import sys
+import time
+
+KEY = "pre_output_command"
+MARK = "texp-mousehop"
+SENTINEL = "texp-voxtype-wire"
+COMMENT = [
+    "# texp-mousehop (texp-voxtype-wire): while the pointer is on the peer machine",
+    "# texp-mousehop's capture makes Hyprland route wtype keys to the peer, so the",
+    "# texp-mousehop release hook below runs right before voxtype types the text.",
+]
+
+EXIT = {"wired": 0, "already": 0, "removed": 0, "absent": 1,
+        "foreign": 2, "missing": 3, "no-section": 4}
+
+
+def config_path():
+    override = os.environ.get("TEXP_VOXTYPE_CONFIG")
+    if override:
+        return override
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(base, "voxtype", "config.toml")
+
+
+def section_bounds(lines, name):
+    """Line range of [name] (header line + body) or (None, None)."""
+    start = None
+    for i, line in enumerate(lines):
+        text = line.strip()
+        if text.startswith("[") and "]" in text:
+            if text.lstrip("[").split("]")[0].strip() == name:
+                start = i
+                break
+    if start is None:
+        return None, None
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        text = lines[j].strip()
+        if text.startswith("[") and "]" in text:
+            end = j
+            break
+    return start, end
+
+
+def key_of(line):
+    """(key, raw value) for a plain `key = value` line, else None."""
+    if "=" not in line or line.lstrip().startswith("#"):
+        return None
+    key, value = line.split("=", 1)
+    key = key.strip()
+    if not key or any(ch.isspace() for ch in key) or key.startswith("["):
+        return None
+    return key, value.strip()
+
+
+def unquote(value):
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    return value
+
+
+def find_key(lines, start, end):
+    for i in range(start + 1, end):
+        entry = key_of(lines[i])
+        if entry and entry[0] == KEY:
+            return i, unquote(entry[1])
+    return None, None
+
+
+def backup(path):
+    """Same policy as install.sh's backup_file(): one identical backup is enough."""
+    current = open(path, "rb").read()
+    directory = os.path.dirname(os.path.abspath(path)) or "."
+    base = os.path.basename(path)
+    for name in sorted(os.listdir(directory)):
+        if not name.startswith(base + ".bak."):
+            continue
+        try:
+            if open(os.path.join(directory, name), "rb").read() == current:
+                return None
+        except OSError:
+            continue
+    dest = "%s.bak.%s" % (path, time.strftime("%Y%m%d%H%M%S"))
+    shutil.copy2(path, dest)
+    return dest
+
+
+def save(path, lines):
+    data = "".join(lines)
+    if open(path, "r", encoding="utf-8").read() == data:
+        return False
+    backup(path)
+    tmp = "%s.texp-tmp.%d" % (path, os.getpid())
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(tmp, os.stat(path).st_mode & 0o7777)
+    os.replace(tmp, path)                  # atomic: voxtype never sees a half file
+    return True
+
+
+def hook(value):
+    return [line + "\n" for line in COMMENT] + ['%s = "%s"\n' % (KEY, value)]
+
+
+def load():
+    path = config_path()
+    if not os.path.exists(path):
+        return path, None
+    with open(path, "r", encoding="utf-8") as handle:
+        return path, handle.readlines()
+
+
+def inspect(lines, want):
+    """(status, index of the key line or None, current value)."""
+    start, end = section_bounds(lines, "output")
+    if start is None:
+        return "no-section", None, None
+    index, value = find_key(lines, start, end)
+    if index is None:
+        return "absent", None, None
+    if MARK not in value:
+        return "foreign", index, value
+    return "wired", index, value
+
+
+def wire(lines, want):
+    status, index, value = inspect(lines, want)
+    if status == "no-section":
+        return "no-section", None
+    if status == "foreign":
+        return "foreign", value
+    if status == "wired" and value == want:
+        return "already", value
+    if status == "wired":                   # ours, but a stale path
+        lines[index] = '%s = "%s"\n' % (KEY, want)
+        return "wired", want
+    start, _ = section_bounds(lines, "output")
+    lines[start + 1:start + 1] = hook(want)
+    return "wired", want
+
+
+def unwire(lines):
+    status, index, value = inspect(lines, None)
+    if status == "no-section":
+        return "no-section", None
+    if status == "absent":
+        return "absent", None
+    if status == "foreign":
+        return "foreign", value
+    first = index
+    while first - 1 > 0:
+        text = lines[first - 1].strip()
+        if text.startswith("#") and (MARK in text or SENTINEL in text):
+            first -= 1
+            continue
+        break
+    del lines[first:index + 1]
+    return "removed", value
+
+
+def main():
+    bin_dir = None
+    mode = "wire"
+    args = sys.argv[1:]
+    while args:
+        arg = args.pop(0)
+        if arg in ("-h", "--help"):
+            print(__doc__.strip())
+            return 0
+        elif arg == "--check":
+            mode = "check"
+        elif arg == "--uninstall":
+            mode = "uninstall"
+        elif arg == "--print":
+            mode = "print"
+        elif arg == "--bin":
+            if not args:
+                sys.stderr.write("texp-voxtype-wire: --bin needs a directory\n")
+                return 64
+            bin_dir = args.pop(0)
+        elif arg.startswith("--bin="):
+            bin_dir = arg[len("--bin="):]
+        else:
+            sys.stderr.write("texp-voxtype-wire: unknown argument '%s'\n" % arg)
+            return 64
+    if bin_dir is None:                    # installed copy lives in BIN_DIR
+        bin_dir = os.path.dirname(os.path.abspath(__file__))
+    want = os.path.join(bin_dir, "texp-mousehop") + " release"
+    if mode == "print":
+        print(want)
+        return 0
+
+    path, lines = load()
+    if mode == "check":
+        if lines is None:
+            print("voxtype: no config at %s" % path)
+            return EXIT["missing"]
+        status, _, value = inspect(lines, want)
+        if status == "wired" and value == want:
+            print("voxtype: pre_output_command -> %s" % value)
+            return 0
+        if status == "wired":
+            print("voxtype: pre_output_command is stale (%s, expected %s)" % (value, want))
+            return EXIT["absent"]
+        if status == "foreign":
+            print("voxtype: pre_output_command is set by the user (%s)" % value)
+            return EXIT["foreign"]
+        print("voxtype: pre_output_command not wired (%s)" % path)
+        return EXIT[status]
+
+    if lines is None:
+        sys.stderr.write("texp-voxtype-wire: no voxtype config at %s\n" % path)
+        return EXIT["missing"]
+
+    if mode == "uninstall":
+        status, value = unwire(lines)
+        if status == "no-section":
+            sys.stderr.write("texp-voxtype-wire: no [output] section in %s\n" % path)
+            return EXIT["no-section"]
+        if status in ("absent", "foreign"):
+            print("voxtype: nothing to remove (%s)" % (
+                "user-set: %s" % value if status == "foreign" else "no hook"))
+            return EXIT["absent"]
+        save(path, lines)
+        print("voxtype: removed pre_output_command (%s) from %s" % (value, path))
+        return EXIT["removed"]
+
+    status, value = wire(lines, want)
+    if status == "no-section":
+        sys.stderr.write("texp-voxtype-wire: no [output] section in %s\n" % path)
+        return EXIT["no-section"]
+    if status == "foreign":
+        sys.stderr.write(
+            "texp-voxtype-wire: %s already sets pre_output_command to '%s' — "
+            "leaving it alone; wire %s yourself if you want the mousehop "
+            "release hook\n" % (path, value, want))
+        return EXIT["foreign"]
+    if status == "already":
+        print("voxtype: pre_output_command already wired in %s" % path)
+        return EXIT["already"]
+    save(path, lines)
+    print("voxtype: pre_output_command -> %s in %s" % (want, path))
+    return EXIT["wired"]
+
+
+if __name__ == "__main__":
+    sys.exit(main())

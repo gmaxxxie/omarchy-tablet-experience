@@ -315,6 +315,17 @@ if [ "$VERIFY" -eq 1 ]; then
     else
       bad "voxtype replacement table missing — re-run install.sh"
     fi
+    # mousehop release hook (v1.28.1) — only meaningful with mousehop around.
+    if [ -x "$BIN_DIR/texp-mousehop" ] && "$BIN_DIR/texp-mousehop" probe >/dev/null 2>&1; then
+      if [ -x "$BIN_DIR/texp-voxtype-wire" ] \
+          && "$BIN_DIR/texp-voxtype-wire" --bin "$BIN_DIR" --check >/dev/null 2>&1; then
+        ok "voxtype pre_output_command -> texp-mousehop release (mousehop capture handed back)"
+      else
+        bad "voxtype pre_output_command not wired to texp-mousehop — re-run install.sh"
+      fi
+    else
+      warn "mousehop not answering — voxtype pre_output_command check skipped"
+    fi
     if systemctl --user is-active voxtype.service >/dev/null 2>&1; then
       ok "voxtype service running (post-processing active)"
     elif pgrep -x voxtype >/dev/null 2>&1; then
@@ -730,6 +741,24 @@ if command -v voxtype >/dev/null 2>&1; then
   fi
   run voxtype config set output.post_process.command "$BIN_DIR/texp-vtext"
   log "voxtype output.post_process.command -> $BIN_DIR/texp-vtext"
+  # v1.28.1: with mousehop (software KVM) the peer can hold an InputCapture
+  # session, and Hyprland then routes wtype keys to the peer — a dictation
+  # would silently land on the Mac. output.pre_output_command runs right
+  # before voxtype types, i.e. exactly when the capture has to be released.
+  # `voxtype config set` does not know this key, so texp-voxtype-wire does a
+  # comment-preserving line edit inside [output] (and never overwrites a
+  # pre_output_command the user set themselves).
+  if [ -x "$BIN_DIR/texp-voxtype-wire" ]; then
+    VW_RC=0
+    run "$BIN_DIR/texp-voxtype-wire" --bin "$BIN_DIR" || VW_RC=$?
+    case $VW_RC in
+      0) : ;;
+      2) warn "voxtype pre_output_command is already set to something else — the mousehop release hook (texp-mousehop) stays manual" ;;
+      *) warn "could not wire voxtype pre_output_command — re-run: $BIN_DIR/texp-voxtype-wire --bin $BIN_DIR" ;;
+    esac
+  else
+    warn "$BIN_DIR/texp-voxtype-wire missing — mousehop capture release not wired into voxtype"
+  fi
   # post_process needs a daemon restart; it is a user service, restart in
   # place. A bus hiccup must not abort the install — the wiring above is done.
   run systemctl --user restart voxtype 2>/dev/null \

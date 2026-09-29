@@ -40,6 +40,7 @@ texp-ink — 触控笔 / 手指 手写输入面板（Tablet Experience 插件组
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -188,6 +189,20 @@ def model_path(tier: str) -> str:
 
 def dict_path() -> str:
     return os.environ.get("TEXP_INK_DICT") or os.path.join(MODEL_DIR, "dict_v6.txt")
+
+
+def inject_cmd(*args: str) -> List[str]:
+    """wtype command that first hands the pointer back from a mousehop peer.
+
+    v1.28.1: 用了 mousehop（软件 KVM）时，鼠标停在 Mac 那侧 = 本机处于被
+    InputCapture 抓取状态，Hyprland 会把 wtype 打出来的字全部转给 Mac，
+    本机应用什么都收不到（屏幕键盘、语音输入同理）。texp-mousehop run 先在
+    子进程里请求 mousehop 释放抓取、等它落地，再 exec wtype —— 上屏顺序正确，
+    而且不是同步调用，面板不会卡住。没装 texp-mousehop 就照原样直接 wtype。
+    """
+    if shutil.which("texp-mousehop"):
+        return ["texp-mousehop", "run", "--"] + list(args)
+    return list(args)
 
 
 # --------------------------------------------------------------------------
@@ -940,7 +955,7 @@ class InkPanel:
         if replace and self.last_commit:
             self._key("BackSpace", repeat=len(self.last_commit))
         try:
-            subprocess.Popen(["wtype", "--", text], stdout=subprocess.DEVNULL,
+            subprocess.Popen(inject_cmd("wtype", "--", text), stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL)
         except FileNotFoundError:
             self._say("未找到 wtype")
@@ -969,7 +984,8 @@ class InkPanel:
         for _ in range(repeat):
             args += ["-k", key]
         try:
-            subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(inject_cmd(*args), stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
         except FileNotFoundError:
             self._say("未找到 wtype")
 

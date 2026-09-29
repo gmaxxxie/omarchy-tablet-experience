@@ -78,7 +78,7 @@ Item {
 
   // v1.26.1: the plugin's own build stamp. Kept here because QML cannot read
   // manifest.json cheaply; bump it together with the manifest version.
-  readonly property string pluginVersion: "1.28.0"
+  readonly property string pluginVersion: "1.28.1"
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
 
   readonly property string mode: persisted.mode
@@ -548,6 +548,7 @@ Item {
 
   function showVoiceInput() {
     root.voiceInputOpen = true
+    root.releaseMousehop()   // v1.28.1: keys from this overlay must land here
     root.pollVoxtype()   // refresh daemon state the moment it appears
     // v1.11: voice input and the virtual keyboard are mutually exclusive —
     // opening one closes the other. v1.21: the handwriting panel too.
@@ -643,6 +644,7 @@ Item {
   function showVk() {
     // v1.21: the handwriting panel occupies the same bottom strip.
     if (root.inkVisible) root.hideInkInput()
+    root.releaseMousehop()   // v1.28.1: the keyboard types into the focused app
     vkCmd.command = ["texp-vk", "show"]
     vkCmd.running = true
   }
@@ -666,6 +668,7 @@ Item {
     // Mutually exclusive with the on-screen keyboard and voice input.
     if (root.vkVisible) root.hideVk()
     if (root.voiceInputOpen) root.hideVoiceInput()
+    root.releaseMousehop()   // v1.28.1 (texp-ink releases before each wtype too)
     inkCmd.command = ["texp-ink", "show"]
     inkCmd.running = true
   }
@@ -757,6 +760,25 @@ Item {
   BoundedProcess { id: cliCmd }
   BoundedProcess { id: vkCmd }
   BoundedProcess { id: inkCmd }
+
+  // v1.28.1: mousehop (software KVM) holds an InputCapture session while the
+  // pointer is on the peer machine, and Hyprland then routes every wtype /
+  // virtual-keyboard key to the peer — injected text silently lands on the
+  // Mac instead of this tablet. `texp-mousehop release` asks mousehop to hand
+  // the capture back (its own release path: no config write, no session
+  // teardown) and is a silent no-op when mousehop is absent, so it is safe to
+  // call unconditionally. Dictation is covered precisely by voxtype's
+  // output.pre_output_command (wired by texp-voxtype-wire) and handwriting by
+  // texp-ink itself; the calls in the mode-open functions below cover the
+  // overlay's ⏎ / ⌫ / 清空 / arrows / CLI keys and the on-screen keyboard for
+  // the whole input session.
+  BoundedProcess { id: mousehopCmd }
+
+  function releaseMousehop() {
+    if (mousehopCmd.running) return
+    mousehopCmd.command = ["texp-mousehop", "release"]
+    mousehopCmd.running = true
+  }
 
   // v1.25.1: who owns the keyboard decides how 清空 must clear. One extra
   // hyprctl round trip (~10 ms) is invisible next to the tap; on any probe

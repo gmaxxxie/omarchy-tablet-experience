@@ -112,6 +112,24 @@ if [ -d /usr/local/libexec/tablet-experience ]; then
   run sudo rmdir --ignore-fail-on-non-empty /usr/local/libexec/tablet-experience \
     || warn "/usr/local/libexec/tablet-experience not empty — left in place"
 fi
+# ------------------------------------------- voxtype mousehop release hook
+# v1.28.1: texp-voxtype-wire added output.pre_output_command (a mousehop
+# capture must be released before voxtype types, or the text lands on the
+# peer machine). Run it BEFORE the helper is removed below.
+if [ -f "$REPO_ROOT/scripts/texp-voxtype-wire" ]; then
+  VW_RC=0
+  run python3 "$REPO_ROOT/scripts/texp-voxtype-wire" --uninstall || VW_RC=$?
+  case $VW_RC in
+    0)
+      log "voxtype: removed output.pre_output_command (texp-mousehop release hook)"
+      run systemctl --user restart voxtype 2>/dev/null \
+        || warn "could not restart voxtype via systemctl --user — run: systemctl --user restart voxtype"
+      ;;
+    1) log "voxtype: no pre_output_command hook to remove" ;;
+    *) warn "voxtype pre_output_command not removed (texp-voxtype-wire exit $VW_RC) — check ~/.config/voxtype/config.toml" ;;
+  esac
+fi
+
 # ------------------------------------------------------- helper scripts
 for src in "$REPO_ROOT"/scripts/texp-*; do
   [ -f "$src" ] || continue

@@ -106,7 +106,8 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   (EN / 中 / …) and toggles it with one tap (`fcitx5-remote -t`) — the
   convenient EN⇄中 switch the hidden fcitx5 indicator could not provide.
 - **Voice input (v1.5, ⏎ v1.6, Delete/Clear v1.10, direction pad v1.11,
-  Clear-in-terminals v1.25.1, CLI keys v1.26, tablet mode)** — a **mic icon** in the tablet
+  Clear-in-terminals v1.25.1, CLI keys v1.26, mousehop release v1.28.1,
+  tablet mode)** — a **mic icon** in the tablet
   bar opens a bottom hold-to-talk button (tap the icon again to close it).
   Press & hold the button to dictate through **voxtype** (local ASR, no
   cloud), release to transcribe and type the text at your cursor — full CJK
@@ -124,6 +125,18 @@ Chinese version: [README.zh-CN.md](README.zh-CN.md) · Development log: [DEVELOP
   and the virtual keyboard are **mutually exclusive** (v1.11): opening one
   closes the other. Live recording / transcribing state is shown on the
   button and reflects the F9 / SUPER+CTRL+X hotkeys too.
+- **Software-KVM (mousehop) compatibility (v1.28.1)** — with a mouse-sharing
+tool the machine the pointer currently sits on holds an **InputCapture**
+session, and Hyprland then routes every `wtype` / virtual-keyboard key to the
+other machine: dictated text — and the on-screen keyboard, the handwriting
+panel and the ⏎/⌫/CLI keys — silently landed on the Mac whenever the mouse
+was over there. The plugin now asks mousehop to hand the capture back right
+before it types: voxtype's `output.pre_output_command` runs
+`texp-mousehop release` (wired by `texp-voxtype-wire`, comment-preserving,
+never overwrites a hook you set yourself), and opening the voice overlay, the
+keyboard or the ink panel releases it once more. `texp-mousehop` uses
+mousehop's own release path (no config write, no session teardown) and is a
+silent, 0-cost no-op when mousehop is not installed.
 - **Top-bar tap toggle (tablet mode)** — no mouse means no hover, so a thin
   full-width edge strip above the bar toggles it: tap when hidden → show,
   tap again → hide (drives Omarchy's own `bar-off` flag).
